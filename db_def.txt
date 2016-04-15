@@ -1,0 +1,25 @@
+[jrgcb].[dbo].[FundAndManagerData]
+列名	含义
+ID	本记录的ID，由ManagerID+日期+基金内部代码构成
+ManagerID	基金经理ID，有基金经理姓名+从业时间构成
+Name	基金经理姓名
+EducationLevel	受教育程度：1-博士后，2-博士，3-硕士，4-大学本科，5-大专
+PracticeDate	证券从业日期
+AccessionDate	到任日期
+DimissionDate	离任日期：不准确，不要用
+InnerCode	基金内部代码
+SecuCode	基金代码
+SecuAbbr	基金简称
+EndDate	日期
+UnitNV	单位价值
+DividendRatioBeforeTax	分红
+Type	数据库中仅包含type为2和3。（1-契约型封闭  2-开放式  3-LOF 4-ETF 5-FOF 6-创新型封闭式 7-开放式（带固定封闭期) 8-ETF联接 9-半开放式）
+InvestmentType	投资类型 1.积极成长型 2.稳健成长性 3.中小企业成长型 4，平衡型 5.资产重组型 6.科技型 7.指数型 8.优化指数型 9.价值型 10.债券型 11.收益型 15.现金型 20.内需增长型 99.综合型 21.生命周期型
+InvestStyle	投资风格（种类很多，对应聚源CT_SystemConst表中 LB=1093）
+FundTypeCode	晨星分类1103-混合型 1105-债券型  1107-保本型  1109-货币型 1110-QDII 1199-其他型 1101-股票型
+EndShares	期末份额（不准确，暂不用）
+SharesDate	期末份额时间（不准确，暂不用）
+lastNAV	昨净值
+dailyreturn	复权日收益率
+FundsofManager	基金经理当日管理基金数
+ManagersofFund	管理该基金的基金经理人数
