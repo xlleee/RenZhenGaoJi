@@ -1,3 +1,4 @@
+##############################################
 [jrgcb].[dbo].[FundAndManagerData]
 列名	含义
 ID	本记录的ID，由ManagerID+日期+基金内部代码构成
@@ -23,3 +24,40 @@ lastNAV	昨净值
 dailyreturn	复权日收益率
 FundsofManager	基金经理当日管理基金数
 ManagersofFund	管理该基金的基金经理人数
+##############################################
+[JYDB].[dbo].[QT_IndexQuote]
+序号 列名 中文名称 类型 空否 备注
+1 ID ID decimal(18,0) 　 　
+2 InnerCode 证券内部编码 int 　 　
+3 TradingDay 交易日 smalldatetime 　 　
+4 PrevClosePrice 昨收盘(元/点) smallmoney √ 　
+5 OpenPrice 今开盘(元/点) smallmoney √ 　
+6 HighPrice 最高价(元/点) smallmoney √ 　
+7 LowPrice 最低价(元/点) smallmoney √ 　
+8 ClosePrice 收盘价(元/点) smallmoney √ 　
+9 TurnoverVolume 成交量 decimal(19,2) √ 　
+10 TurnoverValue 成交金额(元) money √ 　
+11 TurnoverDeals 成交笔数 int √ 　
+12 ChangePCT 涨跌幅 decimal(19,8) √ 　
+13 NegotiableMV 流通市值 decimal(19,4) √ 　
+14 XGRQ 更新时间 datetime
+##############################################
+[JYDB].[dbo].[SecuMain]
+序号 列名 中文名称 类型 空否 备注
+1 ID ID decimal(18,0) 　 　
+2 InnerCode 证券内部编码 int 　 　
+3 CompanyCode 公司代码 int √ 　
+4 SecuCode 证券代码 varchar(10) √ 　
+5 ChiName 中文名称 varchar(200) √ 　
+6 ChiNameAbbr 中文名称缩写 varchar(100) √ 　
+7 EngName 英文名称 varchar(200) √ 　
+8 EngNameAbbr 英文名称缩写 varchar(50) √ 　
+9 SecuAbbr 证券简称 varchar(20) √ 　
+10 ChiSpelling 拼音证券简称 varchar(10) √ 　
+11 SecuMarket 证券市场 int √ 注1
+12 SecuCategory 证券类别 int √ 注2
+13 ListedDate 上市日期 datetime √ 　
+14 ListedSector 上市板块 int √ 注3
+15 ListedState 上市状态 int √ 注4
+16 ISIN ISIN代码 varchar(20) √ 　
+17 XGRQ 更新时间 datetime 　 　
