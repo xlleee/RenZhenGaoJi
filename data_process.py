@@ -12,13 +12,16 @@ import datetime
 from sklearn import linear_model
 
 ########################################################
-def main(startdatestr, enddatestr, ob_win):
+def main():
     """
     startdatestr: 开始日期 yyyy-mm-dd
     enddatestr: 结束日期 yyyy-mm-dd
-'    ob_win: 观察窗口
+    ob_win: 观察窗口
     要根据ob_win来算一个取数据的时间窗口
     """
+    startdatestr = 'yyyy-mm-dd'
+    enddatestr = 'yyyy-mm-dd'
+    ob_win = 90
     sdtime = datetime.datetime.strptime(startdatestr, '%Y-%m-%d')
     # 按照自然日/工作日 = 7/5，然后再多加30天，应该能够覆盖ob_win的长度
     td = datetime.timedelta(days = ob_win * 7 / 5 + 30)
