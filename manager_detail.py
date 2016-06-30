@@ -20,7 +20,8 @@ def main():
     and output some excel sheets
     ManagerID: string
     """
-    ManagerID_list = ['曹名长19970101', '周应波20100101','左金保20110101']    
+    ManagerID_list = ['洪流19990101']    
+    # ManagerID_list = ['曹名长19970101', '周应波20100101','左金保20110101']    
     # ManagerID_list = ['陈晓翔20010101', '王培20070101', '任泽松20100101', '欧阳沁春20010101', '顾耀强20040101']
     # JYDB db
     cnxn_jydb = pyodbc.connect("""
