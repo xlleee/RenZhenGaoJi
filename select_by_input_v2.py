@@ -64,8 +64,16 @@ def main():
                                                                    input_mkt,
                                                                    input_indu,
                                                                    input_parameters)
-    # test
-                                                   
+
+def backtest(ww, mkt_exp, indu_exp, score_exp, data_sample, input_mkt, input_indu, startdatestr, enddatestr, cnxn_jrgcb):
+    """
+    基于选出的基金组合进行回测
+    1. 看alpha
+    2. 看跟踪误差
+    """
+    # read data
+    
+
 
 
 def select_chicken(data_allrecord, input_mkt, input_indu, input_parameters):
@@ -78,6 +86,7 @@ def select_chicken(data_allrecord, input_mkt, input_indu, input_parameters):
     # pool
     data_sample = pd.DataFrame(columns = data_allrecord.columns)
     # copy of indu_names, easy to loop
+    # top 3 indu
     indu_names = data_allrecord[['name_indu1','name_indu2','name_indu3']]
     for k in iter(input_indu):
         num_of_fund = input_indu[k]
@@ -269,28 +278,30 @@ def get_beta(data_sample):
     """
     split mkt and indu beta
     """
-    # mkt def
-    mktname_unq = np.append(data_sample.name_mkt1.unique(),
-                            data_sample.name_mkt2.unique())
-    mktname_unq = np.append(mktname_unq,data_sample.name_mkt3.unique())
-    mktname_unq = np.unique(mktname_unq)
-    beta_mkt = pd.DataFrame(columns = mktname_unq, index = data_sample.index.values)
-    # indu def
-    induname_unq = np.append(data_sample.name_indu1.unique(),
-                            data_sample.name_indu2.unique())
-    induname_unq = np.append(induname_unq,data_sample.name_indu3.unique())
-    induname_unq = np.unique(induname_unq)
-    beta_indu = pd.DataFrame(columns = induname_unq, index = data_sample.index.values)
+    # time
+    date_array = data_sample.index.values
+    # mkt
+    mktname_list = list()
+    for i in range(1,4):
+        # from 1 to 3
+        temp = eval('data_sample.loc[0,"name_mkt' + str(i) + '"]')
+        mktname_list.append(temp)
+    mkt_beta_df = pd.DataFrame(columns = mktname_list, index = date_array)
+    # indu
+    induname_list = list()
+    for i in range(1,30):
+        # from 1 to 29
+        temp = eval('data_sample.loc[0,"name_indu' + str(i) + '"]')
+        induname_list.append(temp)
+    indu_beta_df = pd.DataFrame(columns = induname_list, index = date_array)
     for index,row in data_sample.iterrows():
-        beta_mkt.ix[index, row.name_mkt1] = row.beta_mkt1
-        beta_mkt.ix[index, row.name_mkt2] = row.beta_mkt2
-        beta_mkt.ix[index, row.name_mkt3] = row.beta_mkt3
-        beta_indu.ix[index, row.name_indu1] = row.beta_indu1
-        beta_indu.ix[index, row.name_indu2] = row.beta_indu2
-        beta_indu.ix[index, row.name_indu3] = row.beta_indu3
-    beta_mkt = beta_mkt.fillna(value = 0)
-    beta_indu = beta_indu.fillna(value = 0)
-    return beta_mkt, beta_indu
+        for i in range(1,4):
+            eval('mkt_beta_df.ix[index, row.name_mkt' + str(i) + '] = row.beta_mkt' + str(i))
+        for i in range(1,30):
+            eval('indu_beta_df.ix[index, row.name_indu' + str(i) +'] = row.beta_indu' + str(i))
+    mkt_beta_df = mkt_beta_df.fillna(value = 0)
+    indu_beta_df = indu_beta_df.fillna(value = 0)
+    return mkt_beta_df, indu_beta_df
 
 def wash1_non_equity(data_allrecord, betasum_lvl = 0.50, score_lvl = 0.60):
     """

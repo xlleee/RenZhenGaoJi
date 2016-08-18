@@ -6,21 +6,21 @@
 
 %let dir = &codeloc;
 
-/*¿ªÊ¼½áÊøÊ±¼ä*/
+/*å¼€å§‹ç»“æŸæ—¶é—´*/
 /*%let begDate = 2011-01-01;*/
 /*%let endDate = 2012-07-17;*/
 %let begDateTime = "01Dec2010:00:00:00"dt;
 %let endDateTime = "31Dec2016:00:00:00"dt;
 
-*¶ÁÈë½ñÌìµÄÈÕÆÚÎÄ¼þ;
+*è¯»å…¥ä»Šå¤©çš„æ—¥æœŸæ–‡ä»¶;
 /*proc import datafile="&codeloc\date.txt" out=date REPLACE;run;*/
 proc sql;
-/*MF_FundArchives°üº¬ÁË»ù½ðµÄÍ¶×ÊÀàÐÍ*/
-/*TYPE 1-ÆõÔ¼ÐÍ·â±Õ  2-¿ª·ÅÊ½  3-LOF 4-ETF 5-FOF 6-´´ÐÂÐÍ·â±ÕÊ½ 7-¿ª·ÅÊ½£¨´ø¹Ì¶¨·â±ÕÆÚ) 8-ETFÁª½Ó 9-°ë¿ª·ÅÊ½*/
-/*InvestmentType Í¶×ÊÀàÐÍ£¨jydb.CT_SystemConst LB=1094£© 1.»ý¼«³É³¤ÐÍ 2.ÎÈ½¡³É³¤ÐÔ 3.ÖÐÐ¡ÆóÒµ³É³¤ÐÍ 4£¬Æ½ºâÐÍ 5.×Ê²úÖØ×éÐÍ 6.¿Æ¼¼ÐÍ 7.Ö¸ÊýÐÍ 8.ÓÅ»¯Ö¸ÊýÐÍ */
-/*9.¼ÛÖµÐÍ 10.Õ®È¯ÐÍ 11.ÊÕÒæÐÍ 15.ÏÖ½ðÐÍ 20.ÄÚÐèÔö³¤ÐÍ 99.×ÛºÏÐÍ 21.ÉúÃüÖÜÆÚÐÍ*/
-/*InvestStyle Í¶×Ê·ç¸ñ jydb.CT_SystemConst LB=1093*/
-/*FundTypeCode ³¿ÐÇ·ÖÀà jydb.CT_SystemConst LB=1273; 1103-»ìºÏÐÍ 1105-Õ®È¯ÐÍ  1107-±£±¾ÐÍ  1109-»õ±ÒÐÍ 1110-QDII 1199-ÆäËûÐÍ 1101-¹ÉÆ±ÐÍ*/
+/*MF_FundArchivesåŒ…å«äº†åŸºé‡‘çš„æŠ•èµ„ç±»åž‹*/
+/*TYPE 1-å¥‘çº¦åž‹å°é—­  2-å¼€æ”¾å¼  3-LOF 4-ETF 5-FOF 6-åˆ›æ–°åž‹å°é—­å¼ 7-å¼€æ”¾å¼ï¼ˆå¸¦å›ºå®šå°é—­æœŸ) 8-ETFè”æŽ¥ 9-åŠå¼€æ”¾å¼*/
+/*InvestmentType æŠ•èµ„ç±»åž‹ï¼ˆjydb.CT_SystemConst LB=1094ï¼‰ 1.ç§¯æžæˆé•¿åž‹ 2.ç¨³å¥æˆé•¿æ€§ 3.ä¸­å°ä¼ä¸šæˆé•¿åž‹ 4ï¼Œå¹³è¡¡åž‹ 5.èµ„äº§é‡ç»„åž‹ 6.ç§‘æŠ€åž‹ 7.æŒ‡æ•°åž‹ 8.ä¼˜åŒ–æŒ‡æ•°åž‹ */
+/*9.ä»·å€¼åž‹ 10.å€ºåˆ¸åž‹ 11.æ”¶ç›Šåž‹ 15.çŽ°é‡‘åž‹ 20.å†…éœ€å¢žé•¿åž‹ 99.ç»¼åˆåž‹ 21.ç”Ÿå‘½å‘¨æœŸåž‹*/
+/*InvestStyle æŠ•èµ„é£Žæ ¼ jydb.CT_SystemConst LB=1093*/
+/*FundTypeCode æ™¨æ˜Ÿåˆ†ç±» jydb.CT_SystemConst LB=1273; 1103-æ··åˆåž‹ 1105-å€ºåˆ¸åž‹  1107-ä¿æœ¬åž‹  1109-è´§å¸åž‹ 1110-QDII 1199-å…¶ä»–åž‹ 1101-è‚¡ç¥¨åž‹*/
 create table fundlist as
 	select innercode,Type,InvestmentType,InvestStyle,FundTypeCode from jydb.MF_FundArchives
 	where type in (2,3) and FundTypeCode ^= 1109;
@@ -30,7 +30,7 @@ create table fundmanager as
 
 create table fundNAV as
 	select InnerCode,EndDate,UnitNV
-	from jydb.MF_NetValue where EndDate between &begDateTime and &endDateTime 
+	from jydb.MF_NetValue where EndDate between &begDateTime and &endDateTime
 	and innercode in (select innercode from fundlist);
 /*create table fundDividend as*/
 /*	select InnerCode,ExRightDate,DividendRatioBeforeTax*/
@@ -43,12 +43,12 @@ create table fundNAV as
 /*	order by innercode,EndDate;*/
 create table fundNAV as
 	select c.SecuCode,c.Secuabbr,a.*,e.InvestAdvisorAbbrName,b.GrowthRateFactor,d.Type,d.InvestmentType,d.InvestStyle,d.FundTypeCode
-	from fundNAV a 
+	from fundNAV a
 	left join jydb.secumain c on a.innercode=c.innercode
-	left join fundlist d on a.innercode=d.innercode 
+	left join fundlist d on a.innercode=d.innercode
 	left join jydb.MF_AdjustingFactor b on a.innercode=b.innercode and a.EndDate=b.ExDiviDate
 	left join (select innercode,aa.InvestAdvisorCode,InvestAdvisorAbbrName from jydb.MF_FundArchives aa left join jydb.MF_InvestAdvisorOutline bb
-		on aa.InvestAdvisorCode=bb.InvestAdvisorCode) e on a.innercode=e.innercode 
+		on aa.InvestAdvisorCode=bb.InvestAdvisorCode) e on a.innercode=e.innercode
 	order by innercode,EndDate;
 /*create table fundNAV as*/
 /*	select c.SecuCode,c.Secuabbr,a.*,b.DividendRatioBeforeTax,d.Type,d.InvestmentType,d.InvestStyle,d.FundTypeCode,e.EndShares,e.EndDate as SharesDate*/
@@ -76,12 +76,12 @@ data fundmanager;
 	set fundmanager;
 	format ManagerID $20.;
 	length ManagerID $ 20;
-	if PracticeDate=. then 
+	if PracticeDate=. then
 		ManagerID=cats(Name,"00000000");
 	else
 		ManagerID=cats(substr(Name,1,10),put(datepart(PracticeDate),yymmddn8.));
 run;
-/*EndShares »¹Ã»´¦ÀíºÃ*/
+/*EndShares è¿˜æ²¡å¤„ç†å¥½*/
 data fundNAV(rename=(secuabbrtem=SecuAbbr) );
 	set fundNAV;
 	format secuabbrtem $20.;
@@ -89,7 +89,7 @@ data fundNAV(rename=(secuabbrtem=SecuAbbr) );
 	secuabbrtem=SecuAbbr;
 	UnitNVAdj = GrowthRateFactor*UnitNV;
 	tt = lag(UnitNVAdj);
-	if first.innercode then 
+	if first.innercode then
 		lastNAVAdj = .;
 	else
 		lastNAVAdj =tt;
@@ -124,7 +124,7 @@ create table ManagersofFund as
 	from FundAndManagerData group by innercode,EndDate;
 create table FundAndManagerData as
 	select a.*,FundsofManager,ManagersofFund
-	from FundAndManagerData a 
+	from FundAndManagerData a
 		left join FundsofManager b on a.ManagerID=b.ManagerID and a.EndDate=b.EndDate
 		left join ManagersofFund c on a.innercode=c.innercode and a.EndDate=c.EndDate
 	order by innercode,EndDate;
@@ -134,7 +134,7 @@ retain ID;
 set FundAndManagerData;
 run;
 proc sql;
-/*µ¼ÈëÊý¾Ý¿â*/
+/*å¯¼å…¥æ•°æ®åº“*/
 INSERT INTO jrgcb.FundAndManagerData
 	select * from FundAndManagerData as BB
 	where BB.id not in (select distinct id from jrgcb.FundAndManagerData where EndDate >=&begDateTime);
@@ -143,7 +143,7 @@ quit;
 
 data tem;
 set FundAndManagerData;
-if managerid='³ÂÑ·20010101' and enddate in ('29MAY2015:00:00:00'dt ,'28MAY2015:00:00:00'dt);
+if managerid='é™ˆé€Š20010101' and enddate in ('29MAY2015:00:00:00'dt ,'28MAY2015:00:00:00'dt);
 run;
 proc sql;
 create table tem as

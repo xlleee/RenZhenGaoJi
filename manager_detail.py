@@ -20,8 +20,8 @@ def main():
     and output some excel sheets
     ManagerID: string
     """
-    ManagerID_list = ['洪流19990101']    
-    # ManagerID_list = ['曹名长19970101', '周应波20100101','左金保20110101']    
+    ManagerID_list = ['洪流19990101']
+    # ManagerID_list = ['曹名长19970101', '周应波20100101','左金保20110101']
     # ManagerID_list = ['陈晓翔20010101', '王培20070101', '任泽松20100101', '欧阳沁春20010101', '顾耀强20040101']
     # JYDB db
     cnxn_jydb = pyodbc.connect("""
@@ -96,11 +96,6 @@ def main():
         # draw ts
         fig = draw_ret_ts(data_manager_analysis, data_mktbeta, data_indubeta)
         fig.savefig(ManagerID + '_cumret_plot.png', bbox_inches = 'tight')
-
-
-
-
-
 
 
 def draw_mkt_indu_area(data_manager_analysis):
@@ -256,9 +251,11 @@ def draw_ret_ts(data_manager_analysis, data_mktbeta, data_indubeta):
         sync_df.ix[index, 'mkt_sync'] = mkt_sync
         # indu
         if index in data_indubeta.index:
-            indu_sync = (row.beta_indu1 * data_indubeta.ix[index, row.name_indu1] +
-                         row.beta_indu2 * data_indubeta.ix[index, row.name_indu2] +
-                         row.beta_indu3 * data_indubeta.ix[index, row.name_indu3])
+            evalstr = 'row.beta_indu1 * data_indubeta.ix[index, row.name_indu1]'
+            for i in range(2,30):
+                # from 2 to 30
+                evalstr += '+ row.beta_indu' + str(i) + ' * data_indubeta.ix[index, row.name_indu' + str(i) +'']'
+            indu_sync = eval(evalstr)
         else:
             indu_sync = 0
         sync_df.ix[index, 'indu_sync'] = indu_sync
@@ -336,24 +333,24 @@ def split_beta(data_manager_analysis):
     # time
     date_array = data_manager_analysis.index.values
     # mkt
-    mktname_unq = np.append(data_manager_analysis.name_mkt1.unique(),
-                            data_manager_analysis.name_mkt2.unique())
-    mktname_unq = np.append(mktname_unq,data_manager_analysis.name_mkt3.unique())
-    mktname_unq = np.unique(mktname_unq)
-    mkt_beta_df = pd.DataFrame(columns = mktname_unq, index = date_array)
+    mktname_list = list()
+    for i in range(1,4):
+        # from 1 to 3
+        temp = eval('data_manager_analysis.loc[0,"name_mkt' + str(i) + '"]')
+        mktname_list.append(temp)
+    mkt_beta_df = pd.DataFrame(columns = mktname_list, index = date_array)
     # indu
-    induname_unq = np.append(data_manager_analysis.name_indu1.unique(),
-                            data_manager_analysis.name_indu2.unique())
-    induname_unq = np.append(induname_unq,data_manager_analysis.name_indu3.unique())
-    induname_unq = np.unique(induname_unq)
-    indu_beta_df = pd.DataFrame(columns = induname_unq, index = date_array)
+    induname_list = list()
+    for i in range(1,30):
+        # from 1 to 29
+        temp = eval('data_manager_analysis.loc[0,"name_indu' + str(i) + '"]')
+        induname_list.append(temp)
+    indu_beta_df = pd.DataFrame(columns = induname_list, index = date_array)
     for index,row in data_manager_analysis.iterrows():
-        mkt_beta_df.ix[index, row.name_mkt1] = row.beta_mkt1
-        mkt_beta_df.ix[index, row.name_mkt2] = row.beta_mkt2
-        mkt_beta_df.ix[index, row.name_mkt3] = row.beta_mkt3
-        indu_beta_df.ix[index, row.name_indu1] = row.beta_indu1
-        indu_beta_df.ix[index, row.name_indu2] = row.beta_indu2
-        indu_beta_df.ix[index, row.name_indu3] = row.beta_indu3
+        for i in range(1,4):
+            eval('mkt_beta_df.ix[index, row.name_mkt' + str(i) + '] = row.beta_mkt' + str(i))
+        for i in range(1,30):
+            eval('indu_beta_df.ix[index, row.name_indu' + str(i) +'] = row.beta_indu' + str(i))
     mkt_beta_df = mkt_beta_df.fillna(value = 0)
     indu_beta_df = indu_beta_df.fillna(value = 0)
     return mkt_beta_df, indu_beta_df
