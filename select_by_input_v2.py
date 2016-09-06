@@ -9,6 +9,10 @@ import pyodbc
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
+import matplotlib.font_manager as ft_mnger
+from scipy import stats
 
 
 def main():
@@ -138,15 +142,96 @@ def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
     WHERE EndDate >= '""" + startdatestr + """' AND EndDate <= '""" + enddatestr + """'
     AND ManagerID IN """ + generate_mID_str(data_sample)
     data_fundmanager = pd.read_sql(sql_fundmanager, cnxn_jrgcb)
-    # calc sync beta ret
+    # calc sync beta ret and fund portfolio
     df_sync_and_fund = pd.DataFrame(index=data_mktbeta.index.values,
-                                    columns=['mkt_sync', 'indu_sync', 'portfolio'])
+                                    columns=['mkt_sync', 'indu_sync', 'portfolio', 'extra_mkt', 'extra_indu'])
+    # input score ---> weight
+    sum_mkt_wgt = sum(list(input_mkt.values()))
     for k in iter(input_mkt):
-        
+        input_mkt[k] = input_mkt[k] / sum_mkt_wgt
+    sum_indu_wgt = sum(list(input_indu.values()))
+    for k in iter(input_indu):
+        input_indu[k] = input_indu[k] / sum_indu_wgt
+    for tday in df_sync_and_fund.index:
+        # calc sync beta
+        mkt_sync = 0
+        for k in iter(input_mkt):
+            mkt_sync += input_mkt[k] * data_mktbeta.ix[tday, k]
+        indu_sync = 0
+        for k in iter(input_indu):
+            indu_sync += input_indu[k] * data_indubeta.ix[tday, k]
+        # calc fund portfolio ret
+        df_fundmanager_at_tday = df_fundmanager.ix[
+            df_fundmanager['EndDate'] == tday]
+        portfolio = 0
+        for i in range(len(ww)):
+            wgt = ww[i]
+            mID = data_sample.ix[i, 'ManagerID']
+            if any(df_fundmanager_at_tday['ManagerID'] == mID):
+                # exist
+                portfolio += wgt * \
+                    df_fundmanager_at_tday.ix[
+                        df_fundmanager_at_tday['ManagerID'] == mID]['Ret']
+            else:
+                # not exist
+                portfolio = np.nan
+                break
+        df_sync_and_fund.ix[tday, 'mkt_sync'] = mkt_sync
+        df_sync_and_fund.ix[tday, 'indu_sync'] = indu_sync
+        df_sync_and_fund.ix[tday, 'portfolio'] = portfolio
+        df_sync_and_fund.ix[tday, 'extra_mkt'] = portfolio - mkt_sync
+        df_sync_and_fund.ix[tday, 'extra_indu'] = portfolio - indu_sync
+    # drop nan
+    # 这个逻辑处理了某个基金经理在测试期间不干了的问题
+    df_sync_and_fund.dropna(how='any', axis=0)
+    # 画图 以及 统计
+    # 1. line plot
+    # 2. hist
 
 
-    # calc fund portfolio ret
-
+def draw_backtest(df):
+    """
+    1. line plot
+    2. hist
+    """
+    # line plot
+    # settings
+    myfont = ft_mnger.FontProperties(fname='C:/Windows/Fonts/msyh.ttf')
+    pylab.mpl.rcParams['axes.unicode_minus'] = False
+    plt.style.use('bmh')
+    # x = end date
+    x = df.index.values
+    # y line
+    cumret_mkt_sync = (df['mkt_sync'].values + 1).cumprod()
+    cumret_indu_sync = (df['indu_sync'].values + 1).cumprod()
+    cumret_portfolio = (df['portfolio'].values + 1).cumprod()
+    y_line = np.transpose(
+        [cumret_mkt_sync, cumret_indu_sync, cumret_portfolio])
+    # y area
+    cumretdiff_mkt = cumret_portfolio - cumret_mkt_sync
+    cumretdiff_indu = cumret_portfolio - cumret_indu_sync
+    y_area = np.transpose([cumretdiff_mkt, cumretdiff_indu])
+    # draw line
+    fig_line = plt.figure(figsize=(10, 7.5))
+    ax_line = fig_line.add_subplot(111)
+    ax_line.plot(x, y_line)
+    ax_line.set_ylabel('cumret')
+    ax_line.legend(['mkt', 'indu', 'portfolio'], loc=2)
+    ax_area = ax_line.twinx()
+    ax_area.fill(x, y_area, alpha=0.5)
+    ax_area.set_ylabel('extra ret')
+    ax_area.legend(['portfolio vs mkt', 'portfolio vs indu'])
+    # maxdd
+    i = np.argmax(np.maximum.accumulate(cumret_portfolio) -
+                  cumret_portfolio)  # end of the period
+    j = np.argmax(cumret_portfolio[:i])  # start of period
+    plt.plot([x[i], x[j]], [cumret_portfolio[i],
+                            cumret_portfolio[j]], 'o', markersize=10)
+    maxdd = 1 - cumret_portfolio[i] / cumret_portfolio[j]
+    # add table
+    # stats
+    n, (mini, maxi), m, v, s, k = stats.describe(df['portfolio'].values)
+    
 
 def generate_mID_str(data_sample):
     """
