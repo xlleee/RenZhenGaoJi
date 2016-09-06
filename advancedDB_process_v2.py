@@ -12,6 +12,8 @@ import datetime
 from sklearn import linear_model
 
 ########################################################
+
+
 def main():
     """
     startdatestr: 开始日期 yyyy-mm-dd
@@ -19,12 +21,12 @@ def main():
     ob_win: 观察窗口
     要根据ob_win来算一个取数据的时间窗口
     """
-    startdatestr = 'yyyy-mm-dd'
-    enddatestr = 'yyyy-mm-dd'
+    startdatestr = '2010-01-01'
+    enddatestr = '2011-12-31'
     ob_win = 90
     sdtime = datetime.datetime.strptime(startdatestr, '%Y-%m-%d')
     # 按照自然日/工作日 = 7/5，然后再多加30天，应该能够覆盖ob_win的长度
-    td = datetime.timedelta(days = ob_win * 7 / 5 + 30)
+    td = datetime.timedelta(days=ob_win * 7 / 5 + 30)
     sdtime = sdtime - td
     rsdt_str = sdtime.strftime('%Y-%m-%d')
     redt_str = enddatestr
@@ -42,7 +44,7 @@ def main():
         DATABASE=jrgcb;
         UID=sa;
         PWD=sa123456""")
-    cursor_jrgcb = cnxn_jrgcb.cursor() # cursor to execute sql strings
+    cursor_jrgcb = cnxn_jrgcb.cursor()  # cursor to execute sql strings
     # create sqlalchemy for writing
     ########################################################
     # read index data from JYDB
@@ -70,19 +72,21 @@ def main():
         AND B.ChangePCT is not null
         AND B.TradingDay >= '""" + rsdt_str + """' AND B.TradingDay <= '""" + redt_str + """'
         ORDER BY A.SecuCode, B.TradingDay"""
-    data_indubeta = pd.read_sql(sql_indubeta, cnxn_jydb, index_col='TradingDay')
+    data_indubeta = pd.read_sql(
+        sql_indubeta, cnxn_jydb, index_col='TradingDay')
     data_indubeta = indexdata_reshape(data_indubeta)
     # read Fund and Manager Data from JRGCB
     sql_FAndMdata = """
         SELECT [ManagerID], [InnerCode], [EndDate], [dailyreturn], [FundsofManager], [ManagersofFund], [InvestAdvisorAbbrName]
-        FROM [jrgcb].[dbo].[FundAndManagerData]
+        FROM [jrgcb].[dbo].[FundAndManagerData_v2]
         WHERE Enddate >= '""" + rsdt_str + """' AND Enddate <= '""" + redt_str + """'
         ORDER BY [ManagerID], [EndDate]
         """
     data_FAndMdata = pd.read_sql(sql_FAndMdata, cnxn_jrgcb)
-    allmnglist = data_FAndMdata.ManagerID.unique().tolist() # get all mng list
+    allmnglist = data_FAndMdata.ManagerID.unique().tolist()  # get all mng list
     # create table
-    create_table(cursor_jrgcb)
+    db_name = '[jrgcb].[dbo].[FundManagerAnalysis_v2]'
+    # create_table(cursor_jrgcb,db_name)
     ########################################################
     # call organize data
     for ManagerID in allmnglist:
@@ -92,28 +96,12 @@ def main():
                                   data_FAndMdata,
                                   startdatestr, enddatestr, ob_win)
         # result_df.to_excel(ManagerID + 'ob' + str(ob_win) + '.xlsx')
-        write_all_sql = """
-        INSERT INTO [jrgcb].[dbo].[FundManagerAnalysis]
-        VALUES
-        (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """
-        write_withnull_sql = """
-        INSERT INTO [jrgcb].[dbo].[FundManagerAnalysis]
-        ([ID],[EndDate],[InvestAdvisor],[ManagerID],[Ret])
-        VALUES
-        (?,?,?,?,?)
-        """
         for row in result_df.values.tolist():
-            if np.isnan(row[5]):
-                cursor_jrgcb.execute(write_withnull_sql,row[0:5])
-                cursor_jrgcb.commit()
-            else:
-                cursor_jrgcb.execute(write_all_sql,row)
-                cursor_jrgcb.commit()
-
-
-
-
+            str_smart_sql, value_list = smart_write_sql(result_df.columns.values.tolist(),
+                                                        row,
+                                                        db_name)
+            cursor_jrgcb.execute(str_smart_sql, value_list)
+            cursor_jrgcb.commit()
 
 
 def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startdatestr, enddatestr, ob_win):
@@ -127,8 +115,8 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
     # read mng record data
     data_allrecord = data_FAndMdata[data_FAndMdata.ManagerID == ManagerID]
     # store
-    cols = ['ID','EndDate','InvestAdvisor','ManagerID','Ret']
-    result_df = pd.DataFrame(columns = cols) # store here
+    cols = ['ID', 'EndDate', 'InvestAdvisor', 'ManagerID', 'Ret']
+    result_df = pd.DataFrame(columns=cols)  # store here
     # 先算出复合收益率
     time_array = data_allrecord.EndDate.unique()
     for date in time_array:
@@ -136,7 +124,7 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
         wgted_ret = 0
         wgt = 0
         InAdv = ''
-        for index,row in data_subrecord.iterrows():
+        for index, row in data_subrecord.iterrows():
             wgt += 1 / row.ManagersofFund
             wgted_ret += row.dailyreturn / row.ManagersofFund
             InAdv = row.InvestAdvisorAbbrName
@@ -145,14 +133,15 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
             continue
         else:
             IDstr = ManagerID + pd.to_datetime(date).strftime('%Y%m%d')
-            result_df = result_df.append(dict(zip(cols,[IDstr,date,InAdv,ManagerID,ret])),
+            result_df = result_df.append(dict(zip(cols, [IDstr, date, InAdv, ManagerID, ret])),
                                          ignore_index=True)
     # 业绩分解
     # fetch index data and construct np.array
     addcols = ['beta_mkt1', 'beta_mkt2', 'beta_mkt3',
                'name_mkt1', 'name_mkt2', 'name_mkt3',
                'intercept_mkt', 'score_mkt',
-               'bias_ret_mkt', 'bias_var_mkt', 'bias_score_mkt', # bias mkt: 风格的偏离
+               'bias_ret_mkt', 'bias_var_mkt', 'bias_score_mkt',  # bias mkt: 风格的偏离
+               'active_ret_mkt', 'active_var_mkt',  # active ret用来衡量调仓带来的超额收益
                'beta_indu1', 'beta_indu2', 'beta_indu3',
                'beta_indu4', 'beta_indu5', 'beta_indu6',
                'beta_indu7', 'beta_indu8', 'beta_indu9',
@@ -174,9 +163,10 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
                'name_indu25', 'name_indu26', 'name_indu27',
                'name_indu28', 'name_indu29',
                'intercept_indu', 'score_indu',
-               'bias_ret_indu', 'bias_var_indu', 'bias_score_indu'] # bias indu：行业的偏离
+               'bias_ret_indu', 'bias_var_indu', 'bias_score_indu',  # bias indu：行业的偏离
+               'active_ret_indu', 'active_var_indu']
     newcols = cols + addcols
-    result_df = result_df.reindex(columns = newcols)
+    result_df = result_df.reindex(columns=newcols)
     idx = 0
     # total = len(result_df)
     while idx < len(result_df):
@@ -187,7 +177,7 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
             continue
         else:
             # get date
-            obdates = result_df.iloc[(idx-ob_win+1):(idx+1)].EndDate
+            obdates = result_df.iloc[(idx - ob_win + 1):(idx + 1)].EndDate
             timegap = (obdates.iloc[-1] - obdates.iloc[0]).days
             if timegap / ob_win > 9 / 5:
                 # dates not continuous
@@ -196,93 +186,137 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
                 continue
             else:
                 # calc
-                mng_ret = result_df.iloc[(idx-ob_win+1):(idx+1)].Ret
+                mng_ret = result_df.iloc[(idx - ob_win + 1):(idx + 1)].Ret
                 mkt_ret = data_mktbeta.loc[obdates]
                 indu_ret = data_indubeta.loc[obdates]
                 mng_ret = mng_ret.values
                 mkt_ret = mkt_ret.values
                 indu_ret = indu_ret.values
                 # remove NaN rows
-                isnanrow = np.isnan(mkt_ret[:,1])
+                isnanrow = np.isnan(mkt_ret[:, 1])
                 mng_ret = mng_ret[~isnanrow]
                 mkt_ret = mkt_ret[~isnanrow]
                 indu_ret = indu_ret[~isnanrow]
+                # 2half to calc active ret
+                mng_ret_1st_half = mng_ret[0:int(0.5 * len(mng_ret))]
+                mkt_ret_1st_half = mkt_ret[0:int(0.5 * len(mkt_ret))]
+                indu_ret_1st_half = indu_ret[0:int(0.5 * len(indu_ret))]
+                mng_ret_2nd_half = mng_ret[
+                    int(0.5 * len(mng_ret)) + 1: len(mng_ret)]
+                mkt_ret_2nd_half = mkt_ret[
+                    int(0.5 * len(mkt_ret)) + 1: len(mkt_ret)]
+                indu_ret_2nd_half = indu_ret[
+                    int(0.5 * len(indu_ret)) + 1: len(indu_ret)]
                 # define mkt model
-                model = linear_model.LassoCV(positive = True,
-                                           cv = int(ob_win/30), # subsample size = 30
-                                           selection = 'random',
-                                           fit_intercept = True,
-                                           normalize = False)
+                model = linear_model.LassoCV(positive=True,
+                                             # subsample size = 30
+                                             cv=int(ob_win / 30),
+                                             selection='random',
+                                             fit_intercept=True,
+                                             normalize=False)
                 # mkt
-                model.fit(mkt_ret, mng_ret) # fit(X, y)
+                model.fit(mkt_ret, mng_ret)  # fit(X, y)
                 beta_mkt = model.coef_
                 name_mkt = data_mktbeta.columns.values
                 sortedidx = np.argsort(beta_mkt)
-                result_df.ix[idx,'beta_mkt1'] = beta_mkt[sortedidx[-1]]
-                result_df.ix[idx,'name_mkt1'] = name_mkt[sortedidx[-1]]
-                result_df.ix[idx,'beta_mkt2'] = beta_mkt[sortedidx[-2]]
-                result_df.ix[idx,'name_mkt2'] = name_mkt[sortedidx[-2]]
-                result_df.ix[idx,'beta_mkt3'] = beta_mkt[sortedidx[-3]]
-                result_df.ix[idx,'name_mkt3'] = name_mkt[sortedidx[-3]]
-                result_df.ix[idx,'intercept_mkt'] = model.intercept_
-                result_df.ix[idx,'score_mkt'] = model.score(mkt_ret, mng_ret)
+                result_df.ix[idx, 'beta_mkt1'] = beta_mkt[sortedidx[-1]]
+                result_df.ix[idx, 'name_mkt1'] = name_mkt[sortedidx[-1]]
+                result_df.ix[idx, 'beta_mkt2'] = beta_mkt[sortedidx[-2]]
+                result_df.ix[idx, 'name_mkt2'] = name_mkt[sortedidx[-2]]
+                result_df.ix[idx, 'beta_mkt3'] = beta_mkt[sortedidx[-3]]
+                result_df.ix[idx, 'name_mkt3'] = name_mkt[sortedidx[-3]]
+                result_df.ix[idx, 'intercept_mkt'] = model.intercept_
+                result_df.ix[idx, 'score_mkt'] = model.score(mkt_ret, mng_ret)
                 # bias mkt
                 # calc ret
                 b_avg = np.mean(beta_mkt)
                 b_adj = beta_mkt - b_avg
-                ct = 1 / np.sum(b_adj[b_adj > 0]) # scale factor
+                ct = 1 / np.sum(b_adj[b_adj > 0])  # scale factor
                 b_adj = b_adj * ct
-                bias_retts_mkt = np.dot(mkt_ret, b_adj) # dot成个加权的收益率
-                temp = np.mean(bias_retts_mkt) * 250 # daily ret 的年化
-                if np.isnan(temp):
-                    temp = 0
-                result_df.ix[idx,'bias_ret_mkt'] = temp
-                temp = np.std(bias_retts_mkt) * 250 ** 0.5 # daily ret std 的年化
-                if np.isnan(temp):
-                    temp = 0
-                result_df.ix[idx,'bias_var_mkt'] = temp
+                bias_retts_mkt = np.dot(mkt_ret, b_adj)  # dot成个加权的收益率
+                temp = np.mean(bias_retts_mkt) * 250  # daily ret 的年化
+                result_df.ix[idx, 'bias_ret_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(bias_retts_mkt) * 250 ** 0.5  # daily ret std 的年化
+                result_df.ix[idx, 'bias_var_mkt'] = 0 if np.isnan(
+                    temp) else temp
                 # calc score
-                # std coef
-                result_df.ix[idx,'bias_score_mkt'] = np.std(beta_mkt)
+                # std
+                result_df.ix[idx, 'bias_score_mkt'] = np.std(beta_mkt)
+                # mkt active ret and var
+                model_2fold = linear_model.LassoCV(positive=True,
+                                                   # subsample size = 30
+                                                   cv=int(ob_win / 15),
+                                                   selection='random',
+                                                   fit_intercept=True,
+                                                   normalize=False)
+                model_2fold.fit(mkt_ret_1st_half, mng_ret_1st_half)
+                beta_1st_half = model_2fold.coef_
+                model_2fold.fit(mkt_ret_2nd_half, mng_ret_2nd_half)
+                beta_2nd_half = model_2fold.coef_
+                active_retts = np.dot(
+                    mkt_ret_2nd_half, beta_2nd_half - beta_1st_half)
+                temp = np.mean(active_retts) * 250
+                result_df.ix[idx, 'active_ret_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(active_retts) * 250 ** 0.5
+                result_df.ix[idx, 'active_var_mkt'] = 0 if np.isnan(
+                    temp) else temp
                 # define indu model
-                model = linear_model.LassoCV(positive = True,
-                                           cv = int(ob_win/30), # subsample size = 30
-                                           selection = 'random',
-                                           fit_intercept = True,
-                                           normalize = False)
+                model = linear_model.LassoCV(positive=True,
+                                             # subsample size = 30
+                                             cv=int(ob_win / 30),
+                                             selection='random',
+                                             fit_intercept=True,
+                                             normalize=False)
                 # indu
                 model.fit(indu_ret, mng_ret)
                 beta_indu = model.coef_
                 name_indu = data_indubeta.columns.values
                 sortedidx = np.argsort(beta_indu)
-                for i in range(1,30):
+                for i in range(1, 30):
                     # from 1 to 29
-                    eval('result_df.ix[idx,"beta_indu' + str(i) + '"] = beta_indu[sortedidx[-' + str(i) + ']]')
+                    exec('result_df.ix[idx,"beta_indu' + str(i) +
+                         '"] = beta_indu[sortedidx[-' + str(i) + ']]')
                     # which means:
                     # result_df.ix[idx,'beta_indui'] = beta_indu[sortedidx[-i]]
-                    eval('result_df.ix[idx,"name_indu' + str(i) + '"] = name_indu[sortedidx[-' + str(i) + ']]')
+                    exec('result_df.ix[idx,"name_indu' + str(i) +
+                         '"] = name_indu[sortedidx[-' + str(i) + ']]')
                     # which means:
                     # result_df.ix[idx,'name_indui'] = name_indu[sortedidx[-i]]
-                result_df.ix[idx,'intercept_indu'] = model.intercept_
-                result_df.ix[idx,'score_indu'] = model.score(indu_ret, mng_ret)
+                result_df.ix[idx, 'intercept_indu'] = model.intercept_
+                result_df.ix[idx, 'score_indu'] = model.score(
+                    indu_ret, mng_ret)
                 # bias indu
                 # calc ret
                 b_avg = np.mean(beta_indu)
                 b_adj = beta_indu - b_avg
-                ct = 1 / np.sum(b_adj[b_adj > 0]) # scale factor
+                ct = 1 / np.sum(b_adj[b_adj > 0])  # scale factor
                 b_adj = b_adj * ct
-                bias_retts_indu = np.dot(indu_ret, b_adj) # dot成个加权的收益率
-                temp = np.mean(bias_retts_indu) * 250 # daily ret 的年化
-                if np.isnan(temp):
-                    temp = 0
-                result_df.ix[idx,'bias_ret_indu'] = temp
-                temp = np.std(bias_retts_indu) * 250 ** 0.5 # daily ret std 的年化
-                if np.isnan(temp):
-                    temp = 0
-                result_df.ix[idx,'bias_var_indu'] = temp
+                bias_retts_indu = np.dot(indu_ret, b_adj)  # dot成个加权的收益率
+                temp = np.mean(bias_retts_indu) * 250  # daily ret 的年化
+                result_df.ix[idx, 'bias_ret_indu'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(bias_retts_indu) * \
+                    250 ** 0.5  # daily ret std 的年化
+                result_df.ix[idx, 'bias_var_indu'] = 0 if np.isnan(
+                    temp) else temp
                 # calc score
                 # std coef
-                result_df.ix[idx,'bias_score_indu'] = np.std(beta_indu)
+                result_df.ix[idx, 'bias_score_indu'] = np.std(beta_indu)
+                # indu active
+                model_2fold.fit(indu_ret_1st_half, mng_ret_1st_half)
+                beta_1st_half = model_2fold.coef_
+                model_2fold.fit(indu_ret_2nd_half, mng_ret_2nd_half)
+                beta_2nd_half = model_2fold.coef_
+                active_retts = np.dot(
+                    indu_ret_2nd_half, beta_2nd_half - beta_1st_half)
+                temp = np.mean(active_retts) * 250
+                result_df.ix[idx, 'active_ret_indu'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(active_retts) * 250 ** 0.5
+                result_df.ix[idx, 'active_var_indu'] = 0 if np.isnan(
+                    temp) else temp
                 # end of calc
                 idx += 1
                 # print('line:' + str(idx) + '/' + str(total) + ', done')
@@ -290,10 +324,37 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
     # 截取starttime和endtime之间的result
     sdtime = datetime.datetime.strptime(startdatestr, '%Y-%m-%d')
     edtime = datetime.datetime.strptime(enddatestr, '%Y-%m-%d')
-    result_df = result_df[(result_df.EndDate >= sdtime) & (result_df.EndDate <= edtime)]
+    result_df = result_df[(result_df.EndDate >= sdtime)
+                          & (result_df.EndDate <= edtime)]
     # print(datetime.datetime.now())
     print('End organize data of: ' + ManagerID)
     return result_df
+
+
+def smart_write_sql(cols, row, db_name):
+    """
+    能够判断row里面那些为nan or nat
+    然后在sql里面不要导入
+    """
+    str_temp = 'INSERT INTO ' + db_name
+    str_col = '('
+    qMark_counts = 0
+    value_list = []
+    for i in range(len(row)):
+        isRecord = {int: lambda x: not np.isnan(x),
+                    float: lambda x: not np.isnan(x),
+                    pd.tslib.Timestamp: lambda x: not pd.isnull(x),
+                    pd.tslib.NaTType: lambda x: False,
+                    str: lambda x: True}[type(row[i])](row[i])
+        if isRecord:
+            # 这项输入sql
+            str_col += '[' + cols[i] + '],'
+            qMark_counts += 1
+            value_list.append(row[i])
+    str_col = str_col[0:-1] + ')'
+    qMarks = '(' + ('?,' * qMark_counts)[0:-1] + ')'
+    str_smart_sql = str_temp + str_col + 'VALUES' + qMarks
+    return str_smart_sql, value_list
 
 
 def indexdata_reshape(indexdata_df):
@@ -307,21 +368,22 @@ def indexdata_reshape(indexdata_df):
     reshaped_df = pd.DataFrame()
     for name in chiname_array:
         temp = indexdata_df[indexdata_df.ChiName == name].ClosePrice \
-        / indexdata_df[indexdata_df.ChiName == name].PrevClosePrice - 1
-        data = pd.DataFrame(data = temp.values,
-                            columns = [name],
-                            index = temp.index)
-        reshaped_df = reshaped_df.join(data, how = 'outer')
+            / indexdata_df[indexdata_df.ChiName == name].PrevClosePrice - 1
+        data = pd.DataFrame(data=temp.values,
+                            columns=[name],
+                            index=temp.index)
+        reshaped_df = reshaped_df.join(data, how='outer')
     return reshaped_df.dropna(axis=0, how='any')
 
-def create_table(cursor_jrgcb):
+
+def create_table(cursor_jrgcb, db_name):
     """
     create new table
     29 industries all included
     """
     cursor_jrgcb.execute(
         """
-       CREATE TABLE [jrgcb].[dbo].[FundManagerAnalysis_v2]
+       CREATE TABLE """ + db_name + """
        (ID VARCHAR(255) NOT NULL, EndDate DATETIME NULL, InvestAdvisor VARCHAR(255) NULL,
        ManagerID VARCHAR(255) NULL, Ret FLOAT(53) NULL, beta_mkt1 FLOAT(53) NULL,
        beta_mkt2 FLOAT(53) NULL, beta_mkt3 FLOAT(53) NULL,
@@ -329,6 +391,7 @@ def create_table(cursor_jrgcb):
        name_mkt3 VARCHAR(255) NULL, intercept_mkt FLOAT(53) NULL,
        score_mkt FLOAT(53) NULL, bias_ret_mkt FLOAT(53) NULL,
        bias_var_mkt FLOAT(53) NULL, bias_score_mkt FLOAT(53) NULL,
+       active_ret_mkt FLOAT(53) NULL, active_var_mkt FLOAT(53) NULL,
        beta_indu1 FLOAT(53) NULL, beta_indu2 FLOAT(53) NULL,
        beta_indu3 FLOAT(53) NULL, beta_indu4 FLOAT(53) NULL,
        beta_indu5 FLOAT(53) NULL, beta_indu6 FLOAT(53) NULL,
@@ -362,9 +425,10 @@ def create_table(cursor_jrgcb):
        intercept_indu FLOAT(53) NULL, score_indu FLOAT(53) NULL,
        bias_ret_indu FLOAT(53) NULL, bias_var_indu FLOAT(53) NULL,
        bias_score_indu FLOAT(53) NULL,
+       active_ret_indu FLOAT(53) NULL, active_var_indu FLOAT(53) NULL
        PRIMARY KEY (ID))
        """)
-       cursor_jrgcb.commit()
+    cursor_jrgcb.commit()
 
 if __name__ == '__main__':
     main()

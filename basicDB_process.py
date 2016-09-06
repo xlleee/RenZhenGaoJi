@@ -10,15 +10,16 @@ import pandas as pd
 import numpy as np
 import datetime
 
+
 def process():
     """
     basic DB
     translated from SAS code
     """
     # date
-    print(str(datetime.datetime.now())+': START')
-    startdatestr = '2013-12-01'
-    enddatestr = '2015-12-31'
+    print(str(datetime.datetime.now()) + ': START')
+    startdatestr = '2015-12-01'
+    enddatestr = '2016-08-19'
     # JYDB db
     cnxn_jydb = pyodbc.connect("""
         DRIVER={SQL Server};
@@ -77,21 +78,21 @@ def process():
     left join [JYDB].[dbo].[MF_InvestAdvisorOutline] B
     on A.[InvestAdvisorCode] = B.[InvestAdvisorCode]
     """
-    print(str(datetime.datetime.now())+': READ DB')
+    print(str(datetime.datetime.now()) + ': READ DB')
     # df_fundlist_all ##############  1st df
-    df_fundlist_all = pd.read_sql(str_fundlist_all,cnxn_jydb)
+    df_fundlist_all = pd.read_sql(str_fundlist_all, cnxn_jydb)
     # df_secumain ##################  2nd df
-    df_secumain = pd.read_sql(str_secumain,cnxn_jydb)
+    df_secumain = pd.read_sql(str_secumain, cnxn_jydb)
     # df_fundnav_simple ############  3rd df
-    df_fundnav_simple = pd.read_sql(str_fundnav_simple,cnxn_jydb)
+    df_fundnav_simple = pd.read_sql(str_fundnav_simple, cnxn_jydb)
     # df_adjustfactor ##############  4th df
-    df_adjustfactor = pd.read_sql(str_adjustfactor,cnxn_jydb)
+    df_adjustfactor = pd.read_sql(str_adjustfactor, cnxn_jydb)
     # df_investadvisor #############  5th df
-    df_investadvisor = pd.read_sql(str_investadvisor,cnxn_jydb)
+    df_investadvisor = pd.read_sql(str_investadvisor, cnxn_jydb)
     # df_fundmanager ###############  6th df
-    df_fundmanager = pd.read_sql(str_fundmanager,cnxn_jydb)
+    df_fundmanager = pd.read_sql(str_fundmanager, cnxn_jydb)
     # 1.各种join
-    print(str(datetime.datetime.now())+': MERGE DATA')
+    print(str(datetime.datetime.now()) + ': MERGE DATA')
     # join secumain
     df_fundnav_all = pd.merge(df_fundnav_simple,
                               df_secumain,
@@ -104,10 +105,10 @@ def process():
                               how='left')
     # join adjustfactor
     # left join on two columns!
-    df_adjustfactor = df_adjustfactor.rename(columns={'ExDiviDate':'EndDate'})
+    df_adjustfactor = df_adjustfactor.rename(columns={'ExDiviDate': 'EndDate'})
     df_fundnav_all = pd.merge(df_fundnav_all,
                               df_adjustfactor,
-                              on=['InnerCode','EndDate'],
+                              on=['InnerCode', 'EndDate'],
                               how='left')
     # join investadvisor
     df_fundnav_all = pd.merge(df_fundnav_all,
@@ -115,98 +116,112 @@ def process():
                               on='InnerCode',
                               how='left')
     # sort
-    df_fundnav_all = df_fundnav_all.sort_values(['InnerCode','EndDate'])
+    df_fundnav_all = df_fundnav_all.sort_values(['InnerCode', 'EndDate'])
     df_fundnav_all['new index'] = range(len(df_fundnav_all))
-    df_fundnav_all.set_index(keys=['new index'],drop=True,inplace=True)
+    df_fundnav_all.set_index(keys=['new index'], drop=True, inplace=True)
     # reindex
     newcols = df_fundnav_all.columns.values.tolist() + \
-    ['ID','dailyreturn','FundsofManager','ManagersofFund']
-    df_fundnav_new = df_fundnav_all.reindex(columns = newcols)
+        ['ID', 'dailyreturn', 'FundsofManager', 'ManagersofFund']
+    df_fundnav_new = df_fundnav_all.reindex(columns=newcols)
     # 2.刷GrowthRateFactor
-    print(str(datetime.datetime.now())+': CALCULATE GRATE')
+    print(str(datetime.datetime.now()) + ': CALCULATE GRATE')
     # 还是需要用到df_adjustfactor
     # df_adjustfactor包含了fundlist里所有基金所有日期的调整因子
     # 在当前的fundnav数据中，第一行如果为nan，则需要按照日期回溯adjustfactor
     # 得到在当前时间段之外，但需要沿用的调整因子
     for i in range(len(df_fundnav_new)):
-        if np.isnan(df_fundnav_new.loc[i,'GrowthRateFactor']):
-            if i==0 or df_fundnav_new.loc[i,'InnerCode'] != df_fundnav_new.loc[i-1,'InnerCode']:
+        if np.isnan(df_fundnav_new.loc[i, 'GrowthRateFactor']):
+            if i == 0 or df_fundnav_new.loc[i, 'InnerCode'] != df_fundnav_new.loc[i - 1, 'InnerCode']:
                 # need to look up in df_adjustfactor
                 df_temp = df_adjustfactor.ix[df_adjustfactor['InnerCode'] ==
-                                             df_fundnav_new.loc[i,'InnerCode']]
+                                             df_fundnav_new.loc[i, 'InnerCode']]
                 df_temp = df_temp.sort_values('EndDate')
                 df_temp = df_temp.ix[df_temp['EndDate'] <
-                                     df_fundnav_new.loc[i,'EndDate']]
+                                     df_fundnav_new.loc[i, 'EndDate']]
                 if len(df_temp) == 0:
                     # 空的！
                     temp = 1
                 else:
-                    temp = df_temp['GrowthRateFactor'].iloc[len(df_temp)-1]
-                df_fundnav_new.loc[i,'GrowthRateFactor'] = temp
+                    temp = df_temp['GrowthRateFactor'].iloc[len(df_temp) - 1]
+                df_fundnav_new.loc[i, 'GrowthRateFactor'] = temp
             else:
-                df_fundnav_new.loc[i,'GrowthRateFactor'] = \
-                df_fundnav_new.loc[i-1,'GrowthRateFactor']
+                df_fundnav_new.loc[i, 'GrowthRateFactor'] = \
+                    df_fundnav_new.loc[i - 1, 'GrowthRateFactor']
     # 3.刷ManagerID
-    print(str(datetime.datetime.now())+': MID')
+    print(str(datetime.datetime.now()) + ': MID')
     # if index fund: SecuAbbr + InnerCode
     # if not index fund:Name + PracticeDate
     newcols = df_fundmanager.columns.values.tolist() + ['ManagerID']
-    df_fundmanager = df_fundmanager.reindex(columns = newcols)
+    df_fundmanager = df_fundmanager.reindex(columns=newcols)
     for i in range(len(df_fundmanager)):
-        iCode = df_fundmanager.loc[i,'InnerCode']
+        iCode = df_fundmanager.loc[i, 'InnerCode']
         # 有可能在fundlist里面找不到对应的，那么之后也不会merge进去
-        if len(df_fundlist_all.ix[df_fundlist_all['InnerCode']==iCode]) > 0:
-            ivstmtType = df_fundlist_all.ix[df_fundlist_all['InnerCode']==iCode]['InvestmentType'].values[0]
-            if ivstmtType in (7,8):
+        if len(df_fundlist_all.ix[df_fundlist_all['InnerCode'] == iCode]) > 0:
+            ivstmtType = df_fundlist_all.ix[df_fundlist_all[
+                'InnerCode'] == iCode]['InvestmentType'].values[0]
+            if ivstmtType in (7, 8):
                 # index fund
-                str_secuabbr = df_secumain.ix[df_secumain['InnerCode']==iCode]['SecuAbbr'].values[0]
+                str_secuabbr = df_secumain.ix[df_secumain[
+                    'InnerCode'] == iCode]['SecuAbbr'].values[0]
                 mID = 'index' + str_secuabbr + str(iCode)
                 # clean data in df_fundmanager
-                df_fundmanager.loc[i,'Name'] = str_secuabbr
-                df_fundmanager.loc[i,'EducationLevel'] = 0
-                df_fundmanager.loc[i,'PracticeDate'] = pd.tslib.NaT
-                df_fundmanager.loc[i,'AccessionDate'] = pd.tslib.NaT
-                df_fundmanager.loc[i,'DimissionDate'] = pd.tslib.NaT
+                df_fundmanager.loc[i, 'Name'] = str_secuabbr
+                df_fundmanager.loc[i, 'EducationLevel'] = 0
+                df_fundmanager.loc[i, 'PracticeDate'] = pd.tslib.NaT
+                df_fundmanager.loc[i, 'AccessionDate'] = pd.tslib.NaT
+                df_fundmanager.loc[i, 'DimissionDate'] = pd.tslib.NaT
             else:
                 # not index fund
-                str_name = df_fundmanager.loc[i,'Name']
-                if pd.isnull(df_fundmanager.loc[i,'PracticeDate']):
-                    # date == NaT
-                    str_time = '00000000'
+                str_name = df_fundmanager.loc[i, 'Name']
+                if type(str_name) == float:
+                    mID = 'empty'
                 else:
-                    str_time = df_fundmanager.loc[i,'PracticeDate'].strftime('%Y%m%d')
-                mID = str_name + str_time
-            df_fundmanager.loc[i,'ManagerID'] = mID
+                    if pd.isnull(df_fundmanager.loc[i, 'PracticeDate']):
+                        # date == NaT
+                        str_time = '00000000'
+                    else:
+                        str_time = df_fundmanager.loc[
+                            i, 'PracticeDate'].strftime('%Y%m%d')
+                    mID = str_name + str_time
+            df_fundmanager.loc[i, 'ManagerID'] = mID
         else:
-            df_fundmanager.loc[i,'ManagerID'] = 'empty'
-    dplcted = df_fundmanager.duplicated(subset=['InnerCode','Name'])
+            df_fundmanager.loc[i, 'ManagerID'] = 'empty'
+    dplcted = df_fundmanager.duplicated(subset=['InnerCode', 'Name'])
     df_fundmanager = df_fundmanager.ix[~dplcted]
     # reindex
     df_fundmanager['new index'] = range(len(df_fundmanager))
-    df_fundmanager.set_index(keys=['new index'],drop=True,inplace=True)
+    df_fundmanager.set_index(keys=['new index'], drop=True, inplace=True)
     # 4.算dailyreturn
-    print(str(datetime.datetime.now())+': RET')
+    print(str(datetime.datetime.now()) + ': RET')
     # 由于第一个位置的nv没有，无法算ret，所以每次读数据要重复一些，然后踢掉一段
     for i in range(len(df_fundnav_new)):
-        if i==0 or df_fundnav_new.loc[i,'InnerCode'] != df_fundnav_new.loc[i-1,'InnerCode']:
+        if i == 0 or df_fundnav_new.loc[i, 'InnerCode'] != df_fundnav_new.loc[i - 1, 'InnerCode']:
             continue
         else:
             # calc daily ret
-            UnitNVAdj = df_fundnav_new.loc[i,'GrowthRateFactor'] * df_fundnav_new.loc[i,'UnitNV']
-            LastNVAdj = df_fundnav_new.loc[i-1,'GrowthRateFactor'] * df_fundnav_new.loc[i-1,'UnitNV']
+            UnitNVAdj = df_fundnav_new.loc[
+                i, 'GrowthRateFactor'] * df_fundnav_new.loc[i, 'UnitNV']
+            LastNVAdj = df_fundnav_new.loc[
+                i - 1, 'GrowthRateFactor'] * df_fundnav_new.loc[i - 1, 'UnitNV']
             dailyreturn = UnitNVAdj / LastNVAdj - 1
-            df_fundnav_new.loc[i,'dailyreturn'] = dailyreturn
+            df_fundnav_new.loc[i, 'dailyreturn'] = dailyreturn
     # 5.刷ID
-    print(str(datetime.datetime.now())+': ID')
+    print(str(datetime.datetime.now()) + ': ID')
     # merge FundManager
     df_fundnav_new = pd.merge(df_fundnav_new,
                               df_fundmanager,
                               on='InnerCode',
-                              how='left')
+                              how='inner')
     # ID
     eDatearr = df_fundnav_new['EndDate'].values
     aDatearr = df_fundnav_new['AccessionDate'].values
     dDatearr = df_fundnav_new['DimissionDate'].values
+    # xjb shua
+    for i in range(len(dDatearr)):
+        if dDatearr[i] is None:
+            dDatearr[i] = pd.tslib.NaT
+    df_fundnav_new.loc[:, 'DimissionDate'] = dDatearr
+    # xjb shua wan
     mIDarr = df_fundnav_new['ManagerID'].values
     iCodearr = df_fundnav_new['InnerCode'].values
     idarr = list()
@@ -214,24 +229,31 @@ def process():
         eDate = eDatearr[i]
         aDate = aDatearr[i]
         dDate = dDatearr[i]
-        is_remain = (eDate>=aDate) and (eDate<dDate or pd.isnull(dDate))
+        if pd.isnull(dDate):
+            is_remain = eDate >= aDate
+        else:
+            is_remain = eDate >= aDate and eDate < np.datetime64(dDate)
+        # is_remain = (eDate>=aDate) and (eDate<dDate or pd.isnull(dDate))
         is_index = mIDarr[i][0:5] == 'index'
         if is_remain or is_index:
             str_mID = mIDarr[i]
-            str_eDate = str(eDate)[0:4]+str(eDate)[5:7]+str(eDate)[8:10]
+            str_eDate = str(eDate)[0:4] + str(eDate)[5:7] + str(eDate)[8:10]
             str_iCode = str(iCodearr[i])
             str_ID = str_mID + 'D' + str_eDate + 'F' + str_iCode
             idarr.append(str_ID)
         else:
             idarr.append('empty')
-    df_fundnav_new.loc[:,'ID'] = idarr
+    df_fundnav_new.loc[:, 'ID'] = idarr
     # clear empty
     df_fundnav_fine = df_fundnav_new.ix[df_fundnav_new['ID'] != 'empty']
+    # if duplicated ID
+    dplcted = df_fundnav_fine.duplicated(subset=['ID'])
+    df_fundnav_fine = df_fundnav_fine.ix[~dplcted]
     # reindex
     df_fundnav_fine['new index'] = range(len(df_fundnav_fine))
-    df_fundnav_fine.set_index(keys=['new index'],drop=True,inplace=True)
+    df_fundnav_fine.set_index(keys=['new index'], drop=True, inplace=True)
     # 6.算FundsofManager和ManagersofFund
-    print(str(datetime.datetime.now())+': FM & MF')
+    print(str(datetime.datetime.now()) + ': FM & MF')
     # 如果把整个df拿出来比较，会产生大量冗余的计算
     # print(datetime.datetime.now())
     # using np.ndarray instead of DataFrame
@@ -257,14 +279,15 @@ def process():
         fsOFmng[i] = sameM
         mngOFfs[i] = sameF
         # print(str(i) + ',' + str(sameM) + ',' + str(sameF))
-    df_fundnav_fine.loc[:,'FundsofManager'] = fsOFmng
-    df_fundnav_fine.loc[:,'ManagersofFund'] = mngOFfs
+    df_fundnav_fine.loc[:, 'FundsofManager'] = fsOFmng
+    df_fundnav_fine.loc[:, 'ManagersofFund'] = mngOFfs
     return df_fundnav_fine
     # print(datetime.datetime.now())
 
+
 def write_sql(df_fundnav_fine, is_create):
     # 7.导入数据库
-    print(str(datetime.datetime.now())+': WRITE DB')
+    print(str(datetime.datetime.now()) + ': WRITE DB')
     # JRGCB db
     cnxn_jrgcb = pyodbc.connect("""
         DRIVER={SQL Server};
@@ -272,8 +295,8 @@ def write_sql(df_fundnav_fine, is_create):
         DATABASE=jrgcb;
         UID=sa;
         PWD=sa123456""")
-    writestartdatestr = '2014-01-01'
-    writestartdate = datetime.datetime.strptime(writestartdatestr,'%Y-%m-%d')
+    writestartdatestr = '2016-01-01'
+    writestartdate = datetime.datetime.strptime(writestartdatestr, '%Y-%m-%d')
     cursor_jrgcb = cnxn_jrgcb.cursor()
     if is_create:
         # create new table
@@ -308,12 +331,12 @@ def write_sql(df_fundnav_fine, is_create):
     # write lines
     for row in df_fundnav_fine.values.tolist():
         if row[1] >= writestartdate:
-            str_smart_sql,value_list = smart_write_sql(df_fundnav_fine.columns.values.tolist(),
-                                                       row,
-                                                       '[jrgcb].[dbo].[FundAndManagerData_v2]')
-            cursor_jrgcb.execute(str_smart_sql,value_list)
+            str_smart_sql, value_list = smart_write_sql(df_fundnav_fine.columns.values.tolist(),
+                                                        row,
+                                                        '[jrgcb].[dbo].[FundAndManagerData_v2]')
+            cursor_jrgcb.execute(str_smart_sql, value_list)
             cursor_jrgcb.commit()
-    print(str(datetime.datetime.now())+': END')
+    print(str(datetime.datetime.now()) + ': END')
 
 
 def smart_write_sql(cols, row, db_name):
@@ -326,17 +349,17 @@ def smart_write_sql(cols, row, db_name):
     qMark_counts = 0
     value_list = []
     for i in range(len(row)):
-        isRecord = {int:lambda x:not np.isnan(x),
-                 float:lambda x:not np.isnan(x),
-                 pd.tslib.Timestamp:lambda x:not pd.isnull(x),
-                 pd.tslib.NaTType:lambda x:False,
-                 str:lambda x:True}[type(row[i])](row[i])
+        isRecord = {int: lambda x: not np.isnan(x),
+                    float: lambda x: not np.isnan(x),
+                    pd.tslib.Timestamp: lambda x: not pd.isnull(x),
+                    pd.tslib.NaTType: lambda x: False,
+                    str: lambda x: True}[type(row[i])](row[i])
         if isRecord:
             # 这项输入sql
             str_col += '[' + cols[i] + '],'
             qMark_counts += 1
             value_list.append(row[i])
     str_col = str_col[0:-1] + ')'
-    qMarks = '(' + ('?,'*qMark_counts)[0:-1] + ')'
+    qMarks = '(' + ('?,' * qMark_counts)[0:-1] + ')'
     str_smart_sql = str_temp + str_col + 'VALUES' + qMarks
-    return str_smart_sql,value_list
+    return str_smart_sql, value_list
