@@ -21,8 +21,8 @@ def main():
     ob_win: 观察窗口
     要根据ob_win来算一个取数据的时间窗口
     """
-    startdatestr = '2010-01-01'
-    enddatestr = '2011-12-31'
+    startdatestr = '2014-01-01'
+    enddatestr = '2016-08-19'
     ob_win = 90
     sdtime = datetime.datetime.strptime(startdatestr, '%Y-%m-%d')
     # 按照自然日/工作日 = 7/5，然后再多加30天，应该能够覆盖ob_win的长度
@@ -245,7 +245,6 @@ def organize_data(ManagerID, data_mktbeta, data_indubeta, data_FAndMdata, startd
                 result_df.ix[idx, 'bias_score_mkt'] = np.std(beta_mkt)
                 # mkt active ret and var
                 model_2fold = linear_model.LassoCV(positive=True,
-                                                   # subsample size = 30
                                                    cv=int(ob_win / 15),
                                                    selection='random',
                                                    fit_intercept=True,

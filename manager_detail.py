@@ -77,6 +77,9 @@ def main():
         fundduration_df.to_excel(
             ManagerID + '_basic_info.xlsx', sheet_name='basic_info', index=False)
         # analysis
+        # do lasso on every fund within duration
+
+        # fund mananger analysis
         sql_manager_analysis = """
         SELECT *
         FROM [jrgcb].[dbo].[FundManagerAnalysis]
@@ -88,6 +91,8 @@ def main():
         data_manager_analysis = data_manager_analysis.dropna(axis=0, how='any')
         data_manager_analysis.to_excel(
             ManagerID + '_analysis.xlsx', sheet_name='analysis')
+        # wash active ret data
+        # maybe needed
         # draw mkt indu area
         mkt_beta_df, indu_beta_df, fig_mkt, fig_indu = draw_mkt_indu_area(
             data_manager_analysis)
@@ -326,19 +331,20 @@ def draw_ret_ts(data_manager_analysis, data_mktbeta, data_indubeta):
 def fund_duration(data_manager_basic):
     """
     given data_manager_basic
-    EndDate | SecuAbbr | InvestAdvisorAbbrName
+    EndDate | InnerCode | SecuAbbr | InvestAdvisorAbbrName
     order by enddate
     return table
-    | fund name | company | start time | end time |
+    | InnerCode | fund name | company | start time | end time |
     """
     fund_unq = data_manager_basic.SecuAbbr.unique()
-    cols = ['FundAbbr', 'InvestAdvisor', 'StartTime', 'EndTime']
+    cols = ['InnerCode', 'FundAbbr', 'InvestAdvisor', 'StartTime', 'EndTime']
     result_df = pd.DataFrame(columns=cols)
     for fund in fund_unq:
         temp = data_manager_basic.ix[data_manager_basic.SecuAbbr == fund]
         sd = temp.EndDate.iloc[0]
         ed = temp.EndDate.iloc[-1]
-        result_df = result_df.append(dict(zip(cols, [fund,
+        result_df = result_df.append(dict(zip(cols, [temp.InnerCode.iloc[0],
+                                                     fund,
                                                      temp.InvestAdvisorAbbrName.iloc[
                                                          0],
                                                      sd, ed])),
@@ -399,6 +405,224 @@ def split_beta(data_manager_analysis):
     mkt_beta_df = mkt_beta_df.fillna(value=0)
     indu_beta_df = indu_beta_df.fillna(value=0)
     return mkt_beta_df, indu_beta_df
+
+
+def analysis_single_ts(df, data_mktbeta, data_indubeta, ob_win=90):
+    """
+    对任意的ts，lasso分解
+    """
+    cols = ['EndDate', 'Ret',
+            'beta_mkt1', 'beta_mkt2', 'beta_mkt3',
+            'name_mkt1', 'name_mkt2', 'name_mkt3',
+            'intercept_mkt', 'score_mkt',
+            'bias_ret_mkt', 'bias_var_mkt', 'bias_score_mkt',  # bias mkt: 风格的偏离
+            'active_ret_mkt', 'active_var_mkt',  # active ret用来衡量调仓带来的超额收益
+            'beta_indu1', 'beta_indu2', 'beta_indu3',
+            'beta_indu4', 'beta_indu5', 'beta_indu6',
+            'beta_indu7', 'beta_indu8', 'beta_indu9',
+            'beta_indu10', 'beta_indu11', 'beta_indu12',
+            'beta_indu13', 'beta_indu14', 'beta_indu15',
+            'beta_indu16', 'beta_indu17', 'beta_indu18',
+            'beta_indu19', 'beta_indu20', 'beta_indu21',
+            'beta_indu22', 'beta_indu23', 'beta_indu24',
+            'beta_indu25', 'beta_indu26', 'beta_indu27',
+            'beta_indu28', 'beta_indu29',
+            'name_indu1', 'name_indu2', 'name_indu3',
+            'name_indu4', 'name_indu5', 'name_indu6',
+            'name_indu7', 'name_indu8', 'name_indu9',
+            'name_indu10', 'name_indu11', 'name_indu12',
+            'name_indu13', 'name_indu14', 'name_indu15',
+            'name_indu16', 'name_indu17', 'name_indu18',
+            'name_indu19', 'name_indu20', 'name_indu21',
+            'name_indu22', 'name_indu23', 'name_indu24',
+            'name_indu25', 'name_indu26', 'name_indu27',
+            'name_indu28', 'name_indu29',
+            'intercept_indu', 'score_indu',
+            'bias_ret_indu', 'bias_var_indu', 'bias_score_indu',  # bias indu：行业的偏离
+            'active_ret_indu', 'active_var_indu']
+    result_df = pd.DataFrame(columns=cols)
+    # loop
+    idx = 0
+    while idx < len(df):
+        if idx < ob_win - 1:
+            # no enough data
+            idx += 1
+            continue
+        else:
+            obdates = df.iloc[(idx - ob_win + 1):(idx + 1)].EndDate
+            timegap = (obdates.iloc[-1] - obdates.iloc[0]).days
+            if timegap / ob_win > 9 / 5:
+                # dates not continuous
+                idx += 1
+                continue
+            else:
+                row_df = pd.DataFrame(columns=cols)
+                row_df.ix[0, 'Ret'] = df.iloc[idx, 'Ret']
+                row_df.ix[0, 'EndDate'] = df.iloc[idx, 'EndDate']
+                # calc
+                mng_ret = df.iloc[(idx - ob_win + 1):(idx + 1)].Ret
+                mkt_ret = data_mktbeta.loc[obdates]
+                indu_ret = data_indubeta.loc[obdates]
+                mng_ret = mng_ret.values
+                mkt_ret = mkt_ret.values
+                indu_ret = indu_ret.values
+                # remove NaN rows
+                isnanrow = np.isnan(mkt_ret[:, 1])
+                mng_ret = mng_ret[~isnanrow]
+                mkt_ret = mkt_ret[~isnanrow]
+                indu_ret = indu_ret[~isnanrow]
+                # 2half to calc active ret
+                mng_ret_1st_half = mng_ret[0:int(0.5 * len(mng_ret))]
+                mkt_ret_1st_half = mkt_ret[0:int(0.5 * len(mkt_ret))]
+                indu_ret_1st_half = indu_ret[0:int(0.5 * len(indu_ret))]
+                mng_ret_2nd_half = mng_ret[
+                    int(0.5 * len(mng_ret)) + 1: len(mng_ret)]
+                mkt_ret_2nd_half = mkt_ret[
+                    int(0.5 * len(mkt_ret)) + 1: len(mkt_ret)]
+                indu_ret_2nd_half = indu_ret[
+                    int(0.5 * len(indu_ret)) + 1: len(indu_ret)]
+                # define mkt model
+                model = linear_model.LassoCV(positive=True,
+                                             # subsample size = 30
+                                             cv=int(ob_win / 30),
+                                             selection='random',
+                                             fit_intercept=True,
+                                             normalize=False)
+                # mkt
+                model.fit(mkt_ret, mng_ret)  # fit(X, y)
+                beta_mkt = model.coef_
+                name_mkt = data_mktbeta.columns.values
+                sortedidx = np.argsort(beta_mkt)
+                df.ix[0, 'beta_mkt1'] = beta_mkt[sortedidx[-1]]
+                df.ix[0, 'name_mkt1'] = name_mkt[sortedidx[-1]]
+                df.ix[0, 'beta_mkt2'] = beta_mkt[sortedidx[-2]]
+                df.ix[0, 'name_mkt2'] = name_mkt[sortedidx[-2]]
+                df.ix[0, 'beta_mkt3'] = beta_mkt[sortedidx[-3]]
+                df.ix[0, 'name_mkt3'] = name_mkt[sortedidx[-3]]
+                df.ix[0, 'intercept_mkt'] = model.intercept_
+                df.ix[0, 'score_mkt'] = model.score(mkt_ret, mng_ret)
+                # bias mkt
+                b_avg = np.mean(beta_mkt)
+                b_adj = beta_mkt - b_avg
+                ct = 1 / np.sum(b_adj[b_adj > 0])  # scale factor
+                b_adj = b_adj * ct
+                bias_retts_mkt = np.dot(mkt_ret, b_adj)  # dot成个加权的收益率
+                temp = np.mean(bias_retts_mkt) * 250  # daily ret 的年化
+                df.ix[0, 'bias_ret_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(bias_retts_mkt) * 250 ** 0.5  # daily ret std 的年化
+                df.ix[0, 'bias_var_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                # calc score
+                # std
+                df.ix[0, 'bias_score_mkt'] = np.std(beta_mkt)
+                # mkt active
+                model_2fold = linear_model.LassoCV(positive=True,
+                                                   cv=int(ob_win / 30),
+                                                   selection='random',
+                                                   fit_intercept=True,
+                                                   normalize=False)
+                model_2fold.fit(mkt_ret_1st_half, mng_ret_1st_half)
+                beta_1st_half = model_2fold.coef_
+                model_2fold.fit(mkt_ret_2nd_half, mng_ret_2nd_half)
+                beta_2nd_half = model_2fold.coef_
+                active_retts = np.dot(
+                    mkt_ret_2nd_half, beta_2nd_half - beta_1st_half)
+                temp = np.mean(active_retts) * 250
+                df.ix[0, 'active_ret_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(active_retts) * 250 ** 0.5
+                df.ix[0, 'active_var_mkt'] = 0 if np.isnan(
+                    temp) else temp
+                # indu model
+                model = linear_model.LassoCV(positive=True,
+                                             # subsample size = 30
+                                             cv=int(ob_win / 30),
+                                             selection='random',
+                                             fit_intercept=True,
+                                             normalize=False)
+                # indu
+                model.fit(indu_ret, mng_ret)
+                beta_indu = model.coef_
+                name_indu = data_indubeta.columns.values
+                sortedidx = np.argsort(beta_indu)
+                for i in range(1, 30):
+                    # from 1 to 29
+                    exec('df.ix[0,"beta_indu' + str(i) +
+                         '"] = beta_indu[sortedidx[-' + str(i) + ']]')
+                    exec('df.ix[0,"name_indu' + str(i) +
+                         '"] = name_indu[sortedidx[-' + str(i) + ']]')
+                df.ix[0, 'intercept_indu'] = model.intercept_
+                df.ix[0, 'score_indu'] = model.score(
+                    indu_ret, mng_ret)
+                # bias indu
+                # calc ret
+                b_avg = np.mean(beta_indu)
+                b_adj = beta_indu - b_avg
+                ct = 1 / np.sum(b_adj[b_adj > 0])  # scale factor
+                b_adj = b_adj * ct
+                bias_retts_indu = np.dot(indu_ret, b_adj)  # dot成个加权的收益率
+                temp = np.mean(bias_retts_indu) * 250  # daily ret 的年化
+                df.ix[0, 'bias_ret_indu'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(bias_retts_indu) * \
+                    250 ** 0.5  # daily ret std 的年化
+                df.ix[0, 'bias_var_indu'] = 0 if np.isnan(
+                    temp) else temp
+                # calc score
+                # std coef
+                df.ix[0, 'bias_score_indu'] = np.std(beta_indu)
+                # indu active
+                model_2fold.fit(indu_ret_1st_half, mng_ret_1st_half)
+                beta_1st_half = model_2fold.coef_
+                model_2fold.fit(indu_ret_2nd_half, mng_ret_2nd_half)
+                beta_2nd_half = model_2fold.coef_
+                active_retts = np.dot(
+                    indu_ret_2nd_half, beta_2nd_half - beta_1st_half)
+                temp = np.mean(active_retts) * 250
+                df.ix[0, 'active_ret_indu'] = 0 if np.isnan(
+                    temp) else temp
+                temp = np.std(active_retts) * 250 ** 0.5
+                df.ix[0, 'active_var_indu'] = 0 if np.isnan(
+                    temp) else temp
+                # end of calc
+                idx += 1
+                result_df = result_df.append(row_df,ignore_index=True)
+    return result_df
+
+
+# def wash_active_ret(df, lvl=5/2):
+#     """
+#     wash actvie ret data
+#     简单插值替代异常值
+#     异常值判断：>lvl*(former+later) or <-lvl*(former+later)
+#     """
+#     for i in range(len(df)):
+#         if i==0:
+#             # compare to next date
+#             if (df.loc[i,'active_ret_mkt'] > lvl*2*df.loc[i+1,'active_ret_mkt'] or
+#                 df.loc[i,'active_ret_mkt'] < -lvl*2*df.loc[i+1,'active_ret_mkt']):
+#                 df.loc[i,'active_ret_mkt'] = df.loc[i+1,'active_ret_mkt']
+#                 df.loc[i,'active_var_mkt'] = df.loc[i+1,'active_var_mkt']
+#             if (df.loc[i,'active_ret_indu'] > lvl*2*df.loc[i+1,'active_ret_indu'] or
+#                 df.loc[i,'active_ret_indu'] < -lvl*2*df.loc[i+1,'active_ret_indu']):
+#                 df.loc[i,'active_ret_indu'] = df.loc[i+1,'active_ret_indu']
+#                 df.loc[i,'active_var_indu'] = df.loc[i+1,'active_var_indu']
+#             continue
+#         if i==len(df):
+#             # compare to former date
+#             if (df.loc[i,'active_ret_mkt'] > lvl*2*df.loc[i-1,'active_ret_mkt'] or
+#                 df.loc[i,'active_ret_mkt'] < -lvl*2*df.loc[i-1,'active_ret_mkt']):
+#                 df.loc[i,'active_ret_mkt'] = df.loc[i-1,'active_ret_mkt']
+#                 df.loc[i,'active_var_mkt'] = df.loc[i-1,'active_var_mkt']
+#             if (df.loc[i,'active_ret_indu'] > lvl*2*df.loc[i-1,'active_ret_indu'] or
+#                 df.loc[i,'active_ret_indu'] < -lvl*2*df.loc[i-1,'active_ret_indu']):
+#                 df.loc[i,'active_ret_indu'] = df.loc[i-1,'active_ret_indu']
+#                 df.loc[i,'active_var_indu'] = df.loc[i-1,'active_var_indu']
+#             continue
+#         tempavg = df.loc[i-1,'active_ret_mkt'] + df.loc[i+1,'active_ret_mkt']
+#
+
 
 if __name__ == '__main__':
     main()

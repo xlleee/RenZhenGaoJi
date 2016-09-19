@@ -35,6 +35,8 @@ def main():
                     'bias indu': 4.,
                     'alpha indu': 6.,
                     'active indu', 6.}
+    input_banlist = []
+
     # select fund by input
     ww, mkt_exp, indu_exp, score_exp, data_sample = select_fund_by_input(
         startdatestr, input_mkt, input_indu, input_prefer)
@@ -42,7 +44,7 @@ def main():
     backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr)
 
 
-def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer):
+def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer, input_banlist):
     """
     select by input:
     input 1: mkt
@@ -70,6 +72,7 @@ def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer):
     raw_data = pd.read_sql(select_data_sql,
                            cnxn_jrgcb,
                            index_col='ManagerID')
+    # wash0: 剔除ban掉的基金
 
     # wash1: 剔除非股票基金
     data_allrecord = wash1_non_equity(raw_data)
@@ -187,6 +190,15 @@ def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
     # 画图 以及 统计
     # 1. line plot
     # 2. hist
+    fig_line, fig_hist = draw_backtest(df_sync_and_fund)
+    # output
+    fig_line.savefig('CumRet.png', bbox_inches='tight')
+    fig_hist.savefig('ExtraRet.png', bbox_inches='tight')
+    df_sync_and_fund.to_excel('Portfolio.xlsx')
+    newcols = data_sample.colunms.values.to_list() + ['weight']
+    data_sample.reindex(columns=newcols)
+    data_sample['weight'] = ww
+    data_sample.to_excel('Basic Info.xlsx')
 
 
 def draw_backtest(df):
@@ -220,7 +232,7 @@ def draw_backtest(df):
     ax_area = ax_line.twinx()
     ax_area.fill(x, y_area, alpha=0.5)
     ax_area.set_ylabel('extra ret')
-    ax_area.legend(['portfolio vs mkt', 'portfolio vs indu'])
+    ax_area.legend(['portfolio vs mkt', 'portfolio vs indu'], loc=2)
     # maxdd
     i = np.argmax(np.maximum.accumulate(cumret_portfolio) -
                   cumret_portfolio)  # end of the period
@@ -231,7 +243,52 @@ def draw_backtest(df):
     # add table
     # stats
     n, (mini, maxi), m, v, s, k = stats.describe(df['portfolio'].values)
-    
+    ax_line.table(cellText=[np.round([n, mini, maxi, m, 250**0.5 * v, s, k, maxdd], 3).tolist()],
+                  rowLabels=['Portfolio Stats'],
+                  colLabels=['Count', 'Min', 'Max', 'Mean',
+                             'Variance', 'Skew', 'Kurtosis', 'CumRet MaxDD'],
+                  loc='bottom',
+                  bbox=[0, -0.25, 1, 0.15])
+    # end of fig_line
+    # start drawing fig_hist
+    # parameters
+    num_bins = 50
+    alpha = 0.3
+    histtype = 'stepfilled'
+    fig_hist = plt.figure(figsize=(10, 7.5))
+    ax_hist = fig_hist.add_subplot(111)
+    x_ex_mkt = df['extra_mkt'].values
+    x_ex_indu = df['extra_indu'].values
+    # drawing
+    ax_hist.hist(x_ex_mkt, num_bins,
+                 normed=True,
+                 alpha=alpha,
+                 histtype=histtype,
+                 facecolor='red',
+                 label='extra vs mkt')
+    ax_hist.hist(x_ex_indu, num_bins,
+                 normed=True,
+                 alpha=alpha,
+                 histtype=histtype,
+                 facecolor='green',
+                 label='extra vs indu')
+    # add table
+    # stats
+    n_mkt, (min_mkt, max_mkt), m_mkt, v_mkt, s_mkt, k_mkt = stats.describe(x_ex_mkt)
+    n_indu, (min_indu, max_indu), m_indu, v_indu, s_indu, k_indu = stats.describe(
+        x_ex_indu)
+    ax_hist.table(cellText=[np.round([n_mkt, min_mkt, max_mkt, m_mkt, 250**0.5 * v_mkt, s_mkt, k_mkt], 3).tolist(),
+                            np.round([n_indu, min_indu, max_indu, m_indu, 250 **
+                                      0.5 * v_indu, s_indu, k_indu], 3).tolist()],
+                  rowLabels=['extra vs mkt', 'extra vs indu'],
+                  colLabels=['Count', 'Min', 'Max', 'Mean',
+                             'Variance', 'Skew', 'Kurtosis'],
+                  loc='bottom',
+                  bbox=[0, -0.25, 1, 0.15])
+    ax_hist.legend(loc=2)
+    # end of fig_hist
+    return fig_line, fig_hist
+
 
 def generate_mID_str(data_sample):
     """
@@ -489,6 +546,12 @@ def get_beta(data_sample):
     indu_beta_df = indu_beta_df.fillna(value=0)
     return mkt_beta_df, indu_beta_df
 
+def wash0_ban(data_allrecord, input_banlist):
+    """
+    kick ban
+    """
+    data_allrecord = data_allrecord.ix[data_allrecord['ManagerID'] not in input_banlist]
+    return data_allrecord
 
 def wash1_non_equity(data_allrecord, betasum_lvl=0.50, score_lvl=0.60):
     """
