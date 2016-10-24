@@ -21,7 +21,7 @@ def main():
     and output some excel sheets
     ManagerID: string
     """
-    ManagerID_list = ['洪流19990101']
+    ManagerID_list = ['田汉卿20030101']
     # ManagerID_list = ['曹名长19970101', '周应波20100101','左金保20110101']
     # ManagerID_list = ['陈晓翔20010101', '王培20070101', '任泽松20100101', '欧阳沁春20010101', '顾耀强20040101']
     # JYDB db
@@ -67,8 +67,8 @@ def main():
     for ManagerID in ManagerID_list:
         # basic
         sql_manager_basic = """
-        SELECT EndDate, SecuAbbr, InvestAdvisorAbbrName
-        FROM [jrgcb].[dbo].[FundAndManagerData]
+        SELECT InnerCode, EndDate, SecuAbbr, InvestAdvisorAbbrName
+        FROM [jrgcb].[dbo].[FundAndManagerData_v2]
         WHERE ManagerID = '""" + ManagerID + """'
         ORDER BY SecuAbbr, EndDate
         """
@@ -82,7 +82,7 @@ def main():
         # fund mananger analysis
         sql_manager_analysis = """
         SELECT *
-        FROM [jrgcb].[dbo].[FundManagerAnalysis]
+        FROM [jrgcb].[dbo].[FundManagerAnalysis_v2]
         WHERE [ManagerID] = '""" + ManagerID + """'
         ORDER BY [EndDate]
         """
@@ -103,12 +103,39 @@ def main():
         fig_mkt.savefig(ManagerID + '_mkt_area.png', bbox_inches='tight')
         fig_indu.savefig(ManagerID + '_indu_area.png', bbox_inches='tight')
         # draw alpha bret hist
-        fig_mkt, fig_indu = draw_alpha_bret_hist(data_manager_analysis)
+        fig_mkt, fig_indu = draw_alpha_bret_aret_hist(data_manager_analysis)
         fig_mkt.savefig(ManagerID + '_mkt_hist.png', bbox_inches='tight')
         fig_indu.savefig(ManagerID + '_indu_hist.png', bbox_inches='tight')
         # draw ts
         fig = draw_ret_ts(data_manager_analysis, data_mktbeta, data_indubeta)
         fig.savefig(ManagerID + '_cumret_plot.png', bbox_inches='tight')
+
+
+def mf_lookup(find_str, item):
+    """
+    given name
+    look up for managerID
+    """
+    cnxn_jrgcb = pyodbc.connect("""
+        DRIVER={SQL Server};
+        SERVER=172.16.7.166;
+        DATABASE=jrgcb;
+        UID=sa;
+        PWD=sa123456""")
+    if item == 'Name':
+        sql_mf = """
+        SELECT DISTINCT ManagerID
+            FROM [jrgcb].[dbo].[FundAndManagerData_v2]
+            WHERE [Name] = '""" + find_str + """'
+        """
+        return pd.read_sql(sql_mf, cnxn_jrgcb)
+    if item == 'SecuCode':
+        sql_mf = """
+        SELECT DISTINCT ManagerID
+            FROM [jrgcb].[dbo].[FundAndManagerData_v2]
+            WHERE [SecuCode] = '""" + find_str + """'
+        """
+        return pd.read_sql(sql_mf, cnxn_jrgcb)
 
 
 def draw_mkt_indu_area(data_manager_analysis):
@@ -385,14 +412,14 @@ def split_beta(data_manager_analysis):
     mktname_list = list()
     for i in range(1, 4):
         # from 1 to 3
-        temp = eval('data_manager_analysis.loc[0,"name_mkt' + str(i) + '"]')
+        temp = eval('data_manager_analysis.ix[0,"name_mkt' + str(i) + '"]')
         mktname_list.append(temp)
     mkt_beta_df = pd.DataFrame(columns=mktname_list, index=date_array)
     # indu
     induname_list = list()
     for i in range(1, 30):
         # from 1 to 29
-        temp = eval('data_manager_analysis.loc[0,"name_indu' + str(i) + '"]')
+        temp = eval('data_manager_analysis.ix[0,"name_indu' + str(i) + '"]')
         induname_list.append(temp)
     indu_beta_df = pd.DataFrame(columns=induname_list, index=date_array)
     for index, row in data_manager_analysis.iterrows():
@@ -587,7 +614,7 @@ def analysis_single_ts(df, data_mktbeta, data_indubeta, ob_win=90):
                     temp) else temp
                 # end of calc
                 idx += 1
-                result_df = result_df.append(row_df,ignore_index=True)
+                result_df = result_df.append(row_df, ignore_index=True)
     return result_df
 
 

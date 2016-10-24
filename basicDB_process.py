@@ -18,8 +18,8 @@ def process():
     """
     # date
     print(str(datetime.datetime.now()) + ': START')
-    startdatestr = '2015-12-01'
-    enddatestr = '2016-08-19'
+    startdatestr = '2016-08-01'
+    enddatestr = '2016-09-28'
     # JYDB db
     cnxn_jydb = pyodbc.connect("""
         DRIVER={SQL Server};
@@ -186,6 +186,7 @@ def process():
             df_fundmanager.loc[i, 'ManagerID'] = mID
         else:
             df_fundmanager.loc[i, 'ManagerID'] = 'empty'
+    # 把指数基金的name也改掉了以后，同一个基金会出现重复的行
     dplcted = df_fundmanager.duplicated(subset=['InnerCode', 'Name'])
     df_fundmanager = df_fundmanager.ix[~dplcted]
     # reindex
@@ -295,7 +296,7 @@ def write_sql(df_fundnav_fine, is_create):
         DATABASE=jrgcb;
         UID=sa;
         PWD=sa123456""")
-    writestartdatestr = '2016-01-01'
+    writestartdatestr = '2016-08-22'
     writestartdate = datetime.datetime.strptime(writestartdatestr, '%Y-%m-%d')
     cursor_jrgcb = cnxn_jrgcb.cursor()
     if is_create:

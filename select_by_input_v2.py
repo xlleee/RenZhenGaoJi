@@ -20,28 +20,35 @@ def main():
     main function
     """
     # date
-    startdatestr = '2015-01-01'
-    enddatestr = '2016-01-01'
+    startdatestr = '2010-01-01'
+    enddatestr = '2011-01-01'
     # input
-    input_mkt = {'沪深300指数': 8.,
-                 '中证小盘500指数': 1.,
-                 '中证1000指数': 1.}
-    input_indu = {'中信证券-计算机': 1.,
-                  '中信证券-食品饮料': 5.,
-                  '中信证券-医药': 5.}
-    input_prefer = {'bias mkt': 3.,
-                    'alpha mkt': 3.,
-                    'active mkt': 3.,
-                    'bias indu': 4.,
-                    'alpha indu': 6.,
-                    'active indu', 6.}
-    input_banlist = []
+    input_mkt = {'沪深300指数': 3.,
+                 '中证小盘500指数': 3.,
+                 '中证1000指数': 3.}
+#    input_indu = {'中信证券-计算机': 5.,
+#                  '中信证券-食品饮料': 5.,
+#                  '中信证券-医药': 5.}
+    input_indu = {}
+    input_prefer = {'bias mkt': 0.,
+                    'alpha mkt': 5.,
+                    'active mkt': 0.,
+                    'bias indu': 0.,
+                    'alpha indu': 5.,
+                    'active indu': 0.}
+    # banlist
+    input_banlist = get_banlist(startdatestr, enddatestr)
 
     # select fund by input
-    ww, mkt_exp, indu_exp, score_exp, data_sample = select_fund_by_input(
-        startdatestr, input_mkt, input_indu, input_prefer)
+    ww, mkt_exp, indu_exp, score_exp, data_sample, new_diff = select_fund_by_input(
+        startdatestr, input_mkt, input_indu, input_prefer, input_banlist)
     # backtest
-    backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr)
+    banlist = backtest(ww, data_sample, mkt_exp,
+                       indu_exp, startdatestr, enddatestr)
+    print(banlist)
+    print(mkt_exp)
+    print(indu_exp)
+    print(new_diff)
 
 
 def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer, input_banlist):
@@ -73,7 +80,7 @@ def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer, inpu
                            cnxn_jrgcb,
                            index_col='ManagerID')
     # wash0: 剔除ban掉的基金
-
+    raw_data = wash0_ban(raw_data, input_banlist)
     # wash1: 剔除非股票基金
     data_allrecord = wash1_non_equity(raw_data)
     # 打分：根据input prefer打分，然后排序，再返回
@@ -81,13 +88,38 @@ def select_fund_by_input(startdatestr, input_mkt, input_indu, input_prefer, inpu
     # wash2: 剔除不包含要求行业的基金
     data_allrecord = wash2_non_indu(data_allrecord, input_indu)
     # 选鸡
-    input_parameters = {'mkt_width': 1,
-                        'indu_width': 1}
-    ww, mkt_exp, indu_exp, score_exp, data_sample = select_chicken(data_allrecord,
+    input_parameters = {'mkt_width': 0.0001,
+                        'indu_width': 0.0001}
+    ww, mkt_exp, indu_exp, score_exp, data_sample, new_diff = select_chicken(data_allrecord,
                                                                    input_mkt,
                                                                    input_indu,
                                                                    input_parameters)
-    return ww, mkt_exp, indu_exp, score_exp, data_sample
+    return ww, mkt_exp, indu_exp, score_exp, data_sample, new_diff
+
+
+def get_banlist(startdatestr, enddatestr):
+    """
+    get ban list for backtest
+    """
+    cnxn_jrgcb = pyodbc.connect("""
+        DRIVER={SQL Server};
+        SERVER=172.16.7.166;
+        DATABASE=jrgcb;
+        UID=sa;
+        PWD=sa123456""")
+    sql_fundmanager = """
+    SELECT ManagerID, COUNT(EndDate) as DayCount
+    FROM [jrgcb].[dbo].[FundManagerAnalysis_v2]
+    WHERE EndDate >= '""" + startdatestr + """' AND EndDate <= '""" + enddatestr + """'
+    GROUP BY ManagerID
+    """
+    data_fundmanager = pd.read_sql(sql_fundmanager, cnxn_jrgcb)
+    total_day_count = data_fundmanager['DayCount'].max()
+    banlist = []
+    for i in range(len(data_fundmanager)):
+        if data_fundmanager['DayCount'].iloc[i] < total_day_count * 0.95:
+            banlist.append(data_fundmanager['ManagerID'].iloc[i])
+    return banlist
 
 
 def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
@@ -155,6 +187,8 @@ def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
     sum_indu_wgt = sum(list(input_indu.values()))
     for k in iter(input_indu):
         input_indu[k] = input_indu[k] / sum_indu_wgt
+    # loop through tday for manager ret
+    drop_mng_list = []
     for tday in df_sync_and_fund.index:
         # calc sync beta
         mkt_sync = 0
@@ -164,20 +198,22 @@ def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
         for k in iter(input_indu):
             indu_sync += input_indu[k] * data_indubeta.ix[tday, k]
         # calc fund portfolio ret
-        df_fundmanager_at_tday = df_fundmanager.ix[
-            df_fundmanager['EndDate'] == tday]
+        df_fundmanager_at_tday = data_fundmanager.ix[
+            data_fundmanager['EndDate'] == tday]
         portfolio = 0
         for i in range(len(ww)):
             wgt = ww[i]
-            mID = data_sample.ix[i, 'ManagerID']
+            mID = data_sample.index.values[i]
             if any(df_fundmanager_at_tday['ManagerID'] == mID):
                 # exist
                 portfolio += wgt * \
                     df_fundmanager_at_tday.ix[
-                        df_fundmanager_at_tday['ManagerID'] == mID]['Ret']
+                        df_fundmanager_at_tday['ManagerID'] == mID]['Ret'].values[0]
             else:
                 # not exist
                 portfolio = np.nan
+                # do something
+                drop_mng_list.append(mID)
                 break
         df_sync_and_fund.ix[tday, 'mkt_sync'] = mkt_sync
         df_sync_and_fund.ix[tday, 'indu_sync'] = indu_sync
@@ -186,22 +222,25 @@ def backtest(ww, data_sample, input_mkt, input_indu, startdatestr, enddatestr):
         df_sync_and_fund.ix[tday, 'extra_indu'] = portfolio - indu_sync
     # drop nan
     # 这个逻辑处理了某个基金经理在测试期间不干了的问题
-    df_sync_and_fund.dropna(how='any', axis=0)
+    df_sync_and_fund = df_sync_and_fund.dropna(how='any', axis=0)
+    drop_mng_list = np.unique(drop_mng_list)
     # 画图 以及 统计
     # 1. line plot
     # 2. hist
-    fig_line, fig_hist = draw_backtest(df_sync_and_fund)
+    is_draw_indu = (len(input_indu) > 0)
+    fig_line, fig_hist = draw_backtest(df_sync_and_fund, is_draw_indu)
     # output
     fig_line.savefig('CumRet.png', bbox_inches='tight')
     fig_hist.savefig('ExtraRet.png', bbox_inches='tight')
     df_sync_and_fund.to_excel('Portfolio.xlsx')
-    newcols = data_sample.colunms.values.to_list() + ['weight']
+    newcols = data_sample.columns.values.tolist() + ['weight']
     data_sample.reindex(columns=newcols)
     data_sample['weight'] = ww
     data_sample.to_excel('Basic Info.xlsx')
+    return drop_mng_list.tolist()
 
 
-def draw_backtest(df):
+def draw_backtest(df, is_draw_indu):
     """
     1. line plot
     2. hist
@@ -217,28 +256,41 @@ def draw_backtest(df):
     cumret_mkt_sync = (df['mkt_sync'].values + 1).cumprod()
     cumret_indu_sync = (df['indu_sync'].values + 1).cumprod()
     cumret_portfolio = (df['portfolio'].values + 1).cumprod()
-    y_line = np.transpose(
-        [cumret_mkt_sync, cumret_indu_sync, cumret_portfolio])
+    if is_draw_indu:
+        y_line = np.transpose(
+            [cumret_mkt_sync, cumret_indu_sync, cumret_portfolio])
+    else:
+        y_line = np.transpose(
+            [cumret_mkt_sync, cumret_portfolio])
     # y area
     cumretdiff_mkt = cumret_portfolio - cumret_mkt_sync
     cumretdiff_indu = cumret_portfolio - cumret_indu_sync
-    y_area = np.transpose([cumretdiff_mkt, cumretdiff_indu])
+    if is_draw_indu:
+        y_area = np.transpose([cumretdiff_mkt, cumretdiff_indu])
+    else:
+        y_area = np.transpose(cumretdiff_mkt)
     # draw line
     fig_line = plt.figure(figsize=(10, 7.5))
     ax_line = fig_line.add_subplot(111)
     ax_line.plot(x, y_line)
     ax_line.set_ylabel('cumret')
-    ax_line.legend(['mkt', 'indu', 'portfolio'], loc=2)
+    if is_draw_indu:
+        ax_line.legend(['mkt', 'indu', 'portfolio'], loc=2)
+    else:
+        ax_line.legend(['mkt', 'portfolio'], loc=2)
     ax_area = ax_line.twinx()
-    ax_area.fill(x, y_area, alpha=0.5)
+    ax_area.plot(x, y_area, '--')
     ax_area.set_ylabel('extra ret')
-    ax_area.legend(['portfolio vs mkt', 'portfolio vs indu'], loc=2)
+    if is_draw_indu:
+        ax_area.legend(['portfolio vs mkt', 'portfolio vs indu'], loc=4)
+    else:
+        ax_area.legend(['portfolio vs mkt'], loc=4)
     # maxdd
     i = np.argmax(np.maximum.accumulate(cumret_portfolio) -
                   cumret_portfolio)  # end of the period
     j = np.argmax(cumret_portfolio[:i])  # start of period
-    plt.plot([x[i], x[j]], [cumret_portfolio[i],
-                            cumret_portfolio[j]], 'o', markersize=10)
+    ax_line.plot([x[i], x[j]], [cumret_portfolio[i],
+                                cumret_portfolio[j]], 'o', markersize=10)
     maxdd = 1 - cumret_portfolio[i] / cumret_portfolio[j]
     # add table
     # stats
@@ -258,7 +310,8 @@ def draw_backtest(df):
     fig_hist = plt.figure(figsize=(10, 7.5))
     ax_hist = fig_hist.add_subplot(111)
     x_ex_mkt = df['extra_mkt'].values
-    x_ex_indu = df['extra_indu'].values
+    if is_draw_indu:
+        x_ex_indu = df['extra_indu'].values
     # drawing
     ax_hist.hist(x_ex_mkt, num_bins,
                  normed=True,
@@ -266,25 +319,35 @@ def draw_backtest(df):
                  histtype=histtype,
                  facecolor='red',
                  label='extra vs mkt')
-    ax_hist.hist(x_ex_indu, num_bins,
-                 normed=True,
-                 alpha=alpha,
-                 histtype=histtype,
-                 facecolor='green',
-                 label='extra vs indu')
+    if is_draw_indu:
+        ax_hist.hist(x_ex_indu, num_bins,
+                     normed=True,
+                     alpha=alpha,
+                     histtype=histtype,
+                     facecolor='green',
+                     label='extra vs indu')
     # add table
     # stats
     n_mkt, (min_mkt, max_mkt), m_mkt, v_mkt, s_mkt, k_mkt = stats.describe(x_ex_mkt)
-    n_indu, (min_indu, max_indu), m_indu, v_indu, s_indu, k_indu = stats.describe(
-        x_ex_indu)
-    ax_hist.table(cellText=[np.round([n_mkt, min_mkt, max_mkt, m_mkt, 250**0.5 * v_mkt, s_mkt, k_mkt], 3).tolist(),
-                            np.round([n_indu, min_indu, max_indu, m_indu, 250 **
-                                      0.5 * v_indu, s_indu, k_indu], 3).tolist()],
-                  rowLabels=['extra vs mkt', 'extra vs indu'],
-                  colLabels=['Count', 'Min', 'Max', 'Mean',
-                             'Variance', 'Skew', 'Kurtosis'],
-                  loc='bottom',
-                  bbox=[0, -0.25, 1, 0.15])
+    if is_draw_indu:
+        n_indu, (min_indu, max_indu), m_indu, v_indu, s_indu, k_indu = stats.describe(
+            x_ex_indu)
+    if is_draw_indu:
+        ax_hist.table(cellText=[np.round([n_mkt, min_mkt, max_mkt, m_mkt, 250**0.5 * v_mkt, s_mkt, k_mkt], 3).tolist(),
+                                np.round([n_indu, min_indu, max_indu, m_indu, 250 **
+                                          0.5 * v_indu, s_indu, k_indu], 3).tolist()],
+                      rowLabels=['extra vs mkt', 'extra vs indu'],
+                      colLabels=['Count', 'Min', 'Max', 'Mean',
+                                 'Variance', 'Skew', 'Kurtosis'],
+                      loc='bottom',
+                      bbox=[0, -0.25, 1, 0.15])
+    else:
+        ax_hist.table(cellText=[np.round([n_mkt, min_mkt, max_mkt, m_mkt, 250**0.5 * v_mkt, s_mkt, k_mkt], 3).tolist()],
+                      rowLabels=['extra vs mkt'],
+                      colLabels=['Count', 'Min', 'Max', 'Mean',
+                                 'Variance', 'Skew', 'Kurtosis'],
+                      loc='bottom',
+                      bbox=[0, -0.25, 1, 0.15])
     ax_hist.legend(loc=2)
     # end of fig_hist
     return fig_line, fig_hist
@@ -294,10 +357,10 @@ def generate_mID_str(data_sample):
     """
     generate non-zero mIDs string for sql
     """
-    tempstr = "["
-    for mID in data_sample['ManagerID']:
+    tempstr = "("
+    for mID in data_sample.index.values:
         tempstr += "'" + mID + "',"
-    tempstr = tempstr[0:-1] + "]"
+    tempstr = tempstr[0:-1] + ")"
     return tempstr
 
 
@@ -310,35 +373,57 @@ def select_chicken(data_allrecord, input_mkt, input_indu, input_parameters):
     # 1. select pool
     # pool
     data_sample = pd.DataFrame(columns=data_allrecord.columns)
-    # copy of indu_names, easy to loop
-    # top 3 indu
-    indu_names = data_allrecord[['name_indu1', 'name_indu2', 'name_indu3']]
-    for k in iter(input_indu):
-        num_of_fund = input_indu[k]
-        num_selected = 0
-        row_idx = 0
-        indu_idx = 0  # 0,1,2
-        while indu_idx <= 2:
-            if indu_names.iloc[row_idx, indu_idx] == k:
-                # then select
-                data_sample = data_sample.append(
-                    data_allrecord.iloc[row_idx, :])
-                num_selected += 1
-                if num_selected >= num_of_fund:
-                    # done
-                    break
-            # next row / indu
-            row_idx += 1
-            if row_idx >= len(data_allrecord):
-                indu_idx += 1
-                row_idx = 0
+    if len(input_indu) == 0:
+        # 如果对indu没有输入，则直接选取top5 of each mkt
+        mkt_names = data_allrecord[['name_mkt1','name_mkt2','name_mkt3']]
+        for k in iter(input_mkt):
+            num_of_fund = 10
+            num_selected = 0
+            row_idx = 0
+            mkt_idx = 0
+            while mkt_idx <= 2:
+                if mkt_names.iloc[row_idx, mkt_idx] == k:
+                    data_sample = data_sample.append(
+                        data_allrecord.iloc[row_idx, :])
+                    num_selected += 1
+                    if num_selected >= num_of_fund:
+                        break
+                row_idx += 1
+                if row_idx >= len(data_allrecord):
+                    mkt_idx += 1
+                    row_idx = 0
+    else:
+        # copy of indu_names, easy to loop
+        # top 3 indu
+        indu_names = data_allrecord[['name_indu1', 'name_indu2', 'name_indu3']]
+        for k in iter(input_indu):
+            num_of_fund = input_indu[k]
+            num_selected = 0
+            row_idx = 0
+            indu_idx = 0  # 0,1,2
+            while indu_idx <= 2:
+                if indu_names.iloc[row_idx, indu_idx] == k:
+                    # then select
+                    data_sample = data_sample.append(
+                        data_allrecord.iloc[row_idx, :])
+                    num_selected += 1
+                    if num_selected >= num_of_fund:
+                        # done
+                        break
+                # next row / indu
+                row_idx += 1
+                if row_idx >= len(data_allrecord):
+                    indu_idx += 1
+                    row_idx = 0
+    dplcted = data_sample.duplicated(subset=['ID'])
+    data_sample = data_sample.ix[~dplcted]
     # 2. optimize
     # get mkt and indu beta
     beta_mkt, beta_indu = get_beta(data_sample)
     # call opt
     # parameters
     ini = [1 / len(beta_mkt)] * len(beta_mkt)
-    wgt_bounds = [(0.0, 1.0)] * len(beta_mkt)
+    wgt_bounds = [(0.0, 0.15)] * len(beta_mkt)
     # run opt
     is_go_on = True
     diff = calc_diff(ini, beta_mkt, beta_indu, input_mkt,
@@ -428,7 +513,7 @@ def select_chicken(data_allrecord, input_mkt, input_indu, input_parameters):
                                                   beta_indu,
                                                   data_sample.SCORE.values)
     # 3. return
-    return ww, mkt_exp, indu_exp, score_exp, data_sample
+    return ww, mkt_exp, indu_exp, score_exp, data_sample, new_diff
 
 
 def calc_diff(x, beta_mkt, beta_indu, input_mkt, input_indu, input_parameters):
@@ -525,14 +610,14 @@ def get_beta(data_sample):
     mktname_list = list()
     for i in range(1, 4):
         # from 1 to 3
-        temp = eval('data_sample.loc[0,"name_mkt' + str(i) + '"]')
+        temp = eval('data_sample.ix[0,"name_mkt' + str(i) + '"]')
         mktname_list.append(temp)
     mkt_beta_df = pd.DataFrame(columns=mktname_list, index=date_array)
     # indu
     induname_list = list()
     for i in range(1, 30):
         # from 1 to 29
-        temp = eval('data_sample.loc[0,"name_indu' + str(i) + '"]')
+        temp = eval('data_sample.ix[0,"name_indu' + str(i) + '"]')
         induname_list.append(temp)
     indu_beta_df = pd.DataFrame(columns=induname_list, index=date_array)
     for index, row in data_sample.iterrows():
@@ -546,12 +631,17 @@ def get_beta(data_sample):
     indu_beta_df = indu_beta_df.fillna(value=0)
     return mkt_beta_df, indu_beta_df
 
+
 def wash0_ban(data_allrecord, input_banlist):
     """
     kick ban
     """
-    data_allrecord = data_allrecord.ix[data_allrecord['ManagerID'] not in input_banlist]
-    return data_allrecord
+    result_df = pd.DataFrame(columns=data_allrecord.columns)
+    for i in range(len(data_allrecord)):
+        if data_allrecord.index.values[i] not in input_banlist:
+            result_df = result_df.append(data_allrecord.iloc[i, :])
+    return result_df
+
 
 def wash1_non_equity(data_allrecord, betasum_lvl=0.50, score_lvl=0.60):
     """
@@ -569,13 +659,16 @@ def wash2_non_indu(data_allrecord, input_indu):
     """
     剔除不包含行业的
     """
-    list_of_indu = list(input_indu.keys())
-    lgt = np.array([False] * len(data_allrecord.name_indu1.values))
-    for indu in list_of_indu:
-        lgt = lgt | (data_allrecord.name_indu1.values == indu)
-        lgt = lgt | (data_allrecord.name_indu2.values == indu)
-        lgt = lgt | (data_allrecord.name_indu3.values == indu)
-    return data_allrecord.ix[lgt]
+    if len(input_indu) > 0:
+        list_of_indu = list(input_indu.keys())
+        lgt = np.array([False] * len(data_allrecord.name_indu1.values))
+        for indu in list_of_indu:
+            lgt = lgt | (data_allrecord.name_indu1.values == indu)
+            lgt = lgt | (data_allrecord.name_indu2.values == indu)
+            lgt = lgt | (data_allrecord.name_indu3.values == indu)
+        return data_allrecord.ix[lgt]
+    else:
+        return data_allrecord
 
 
 def rate_and_rank(data_allrecord, input_prefer):

@@ -21,8 +21,8 @@ def main():
     ob_win: 观察窗口
     要根据ob_win来算一个取数据的时间窗口
     """
-    startdatestr = '2014-01-01'
-    enddatestr = '2016-08-19'
+    startdatestr = '2016-08-22'
+    enddatestr = '2016-09-28'
     ob_win = 90
     sdtime = datetime.datetime.strptime(startdatestr, '%Y-%m-%d')
     # 按照自然日/工作日 = 7/5，然后再多加30天，应该能够覆盖ob_win的长度
